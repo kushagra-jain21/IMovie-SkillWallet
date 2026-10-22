@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "build": "echo \"Backend build ready\"",
     "dev": "nodemon src/server.js",
     "seed": "node src/scripts/seed.js",
     "seed:admin": "node src/scripts/createAdmin.js",
