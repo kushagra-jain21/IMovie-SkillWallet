@@ -13,6 +13,7 @@
     "dev:server": "npm run dev --prefix server",
     "dev:client": "npm run dev --prefix client",
     "build": "npm run build --prefix client",
+    "deploy": "npx wrangler pages deploy client/dist",
     "start": "npm run start --prefix server",
     "seed": "npm run seed --prefix server",
     "seed:admin": "npm run seed:admin --prefix server",
