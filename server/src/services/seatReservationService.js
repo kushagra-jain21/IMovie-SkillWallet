@@ -7,6 +7,7 @@ import { Booking } from '../models/Booking.js';
 import { Payment } from '../models/Payment.js';
 import { Notification } from '../models/Notification.js';
 import { paymentService } from './paymentService.js';
+import { emailService } from './emailService.js';
 import {
   BOOKING_STATUS,
   PAYMENT_STATUS,
@@ -343,7 +344,7 @@ class SeatReservationService {
       metadata: paymentResult
     });
 
-    // Notify user
+    // Notify user in-app
     await Notification.create({
       user: user._id,
       type: 'booking_confirmed',
@@ -351,6 +352,29 @@ class SeatReservationService {
       message: `Your booking for "${booking.show.movie?.title}" at ${booking.show.theatre?.name} is confirmed. Booking Ref: ${booking.bookingReference}`,
       bookingReference: booking.bookingReference
     });
+
+    // Send email confirmation using the centralized email service (non-blocking)
+    try {
+      let recipientEmail = user?.email;
+      let recipientName = user?.name;
+      if (!recipientEmail && booking.user) {
+        const User = (await import('../models/User.js')).default;
+        const dbUser = await User.findById(booking.user).select('name email');
+        recipientEmail = dbUser?.email;
+        recipientName = dbUser?.name;
+      }
+      if (recipientEmail) {
+        emailService.sendBookingConfirmationEmail({
+          to: recipientEmail,
+          name: recipientName || 'Movie Fan',
+          booking
+        }).catch((err) => {
+          logger.warn(`Failed to dispatch booking confirmation email: ${err.message}`);
+        });
+      }
+    } catch (emailErr) {
+      logger.warn(`Could not prepare confirmation email: ${emailErr.message}`);
+    }
 
     return booking;
   }

@@ -14,8 +14,18 @@ const httpServer = http.createServer(app);
 initSocket(httpServer, env.CLIENT_URL);
 
 const startServer = async () => {
+  // Bind port first so hosting platforms (Render, Railway, etc.) detect an active web service immediately
+  httpServer.listen(env.PORT, () => {
+    logger.info(`=================================================`);
+    logger.info(`🎬 IMovies Server running at port ${env.PORT}`);
+    logger.info(`⚡ Socket.IO listening on port ${env.PORT}`);
+    logger.info(`💳 Payment Provider: ${env.PAYMENT_PROVIDER}`);
+    logger.info(`🌐 Environment: ${env.NODE_ENV}`);
+    logger.info(`=================================================`);
+  });
+
   try {
-    // Connect to database (with automatic in-memory fallback for instant dev execution)
+    // Connect to database
     await connectDB();
 
     // In development or when the database is empty, automatically seed verified baseline multiplexes & catalog
@@ -27,19 +37,13 @@ const startServer = async () => {
 
     // Start background job for releasing expired seat holds
     startSeatExpiryJob(15000);
-
-    // Listen on configured port
-    httpServer.listen(env.PORT, () => {
-      logger.info(`=================================================`);
-      logger.info(`🎬 IMovies Server running at http://localhost:${env.PORT}`);
-      logger.info(`⚡ Socket.IO listening on port ${env.PORT}`);
-      logger.info(`💳 Payment Provider: ${env.PAYMENT_PROVIDER}`);
-      logger.info(`🌐 Environment: ${env.NODE_ENV}`);
-      logger.info(`=================================================`);
-    });
   } catch (error) {
-    logger.error('Failed to start IMovies server:', error.message);
-    process.exit(1);
+    logger.error('Failed to initialize database connection:', error.message);
+    if (env.MONGODB_URI.includes('127.0.0.1') || env.MONGODB_URI.includes('localhost')) {
+      logger.error('⚠️ NOTE: Server is running in cloud/Render mode but MONGODB_URI is set to localhost! Please add MONGODB_URI in your Render Dashboard -> Environment tab.');
+    } else {
+      logger.error('⚠️ Please ensure 0.0.0.0/0 is added in your MongoDB Atlas Network Access so Render can connect.');
+    }
   }
 };
 

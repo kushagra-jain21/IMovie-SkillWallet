@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -42,8 +43,11 @@ app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbStates = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' };
   res.json({
-    status: 'healthy',
+    status: dbState === 1 ? 'healthy' : 'degraded',
+    database: dbStates[dbState] || 'unknown',
     timestamp: new Date(),
     service: 'IMovies REST API',
     uptime: process.uptime()

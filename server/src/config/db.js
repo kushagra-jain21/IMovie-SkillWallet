@@ -7,18 +7,21 @@ let mongodInstance = null;
 export const connectDB = async (customUri = null) => {
   const targetUri = customUri || env.MONGODB_URI;
 
+  const isCloudHost = env.NODE_ENV === 'production' || Boolean(process.env.RENDER);
+  logger.info(`Connecting to MongoDB at: ${targetUri.replace(/:([^@]+)@/, ':****@')}`);
+
   try {
     // Use resilient timeout for remote MongoDB Atlas connections (15s in production, 5s in dev)
     await mongoose.connect(targetUri, {
-      serverSelectionTimeoutMS: env.NODE_ENV === 'production' ? 15000 : 5000
+      serverSelectionTimeoutMS: isCloudHost ? 15000 : 5000
     });
     logger.info('MongoDB connected successfully via URI.');
     return mongoose.connection;
   } catch (err) {
     logger.warn(`Could not connect to configured MongoDB URI (${err.message}).`);
 
-    // In non-production, fall back to mongodb-memory-server so app runs with zero external barriers
-    if (env.NODE_ENV !== 'production') {
+    // In non-production and non-cloud environments, fall back to mongodb-memory-server
+    if (!isCloudHost) {
       try {
         logger.info('Starting embedded MongoDB instance (mongodb-memory-server) for seamless local execution...');
         const { MongoMemoryServer } = await import('mongodb-memory-server');
@@ -32,6 +35,7 @@ export const connectDB = async (customUri = null) => {
         throw err;
       }
     } else {
+      logger.error('CRITICAL: Cannot connect to MongoDB in production/cloud environment. Please check your MONGODB_URI and Atlas IP Access List.');
       throw err;
     }
   }

@@ -157,6 +157,201 @@ If you did not sign up for an IMovies account, please disregard this message.
       throw deliveryError;
     }
   }
+
+  /**
+   * Sends a branded HTML booking confirmation email with ticket details and inline QR code
+   */
+  async sendBookingConfirmationEmail({ to, name, booking }) {
+    const show = booking.show || {};
+    const movie = show.movie || {};
+    const theatre = show.theatre || {};
+    const screen = show.screen || {};
+
+    const showDate = show.startTime
+      ? new Date(show.startTime).toLocaleDateString('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        })
+      : 'Scheduled Date';
+
+    const showTime = show.startTime
+      ? new Date(show.startTime).toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      : 'Showtime';
+
+    const seatNumbers = (booking.seats || []).map((s) => s.seatNumber).join(', ');
+    const seatBadges = (booking.seats || [])
+      .map(
+        (s) =>
+          `<span style="display:inline-block;background:#e50914;color:#fff;padding:4px 10px;border-radius:4px;font-weight:bold;font-size:13px;margin:2px 4px 2px 0;">${s.seatNumber} (${s.category})</span>`
+      )
+      .join(' ');
+
+    const attachments = [];
+    let qrImgTag = '';
+    if (booking.qrCode && booking.qrCode.startsWith('data:image/png;base64,')) {
+      const base64Data = booking.qrCode.replace(/^data:image\/png;base64,/, '');
+      attachments.push({
+        filename: 'ticket-qr.png',
+        content: Buffer.from(base64Data, 'base64'),
+        cid: 'ticket-qrcode'
+      });
+      qrImgTag = `<img src="cid:ticket-qrcode" alt="Ticket QR Code" width="140" height="140" style="display:block;margin:0 auto;border-radius:8px;" />`;
+    }
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IMovies Ticket Confirmation - ${booking.bookingReference}</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #0b0f17; color: #f8fafc; margin: 0; padding: 24px; }
+    .container { max-width: 580px; margin: 0 auto; background-color: #121824; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; }
+    .header { background: #e50914; padding: 24px 20px; text-align: center; }
+    .logo { font-size: 24px; font-weight: bold; color: #ffffff; letter-spacing: 1px; }
+    .tagline { font-size: 12px; color: rgba(255,255,255,0.85); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
+    .body { padding: 32px 28px; line-height: 1.6; }
+    .greeting { font-size: 20px; font-weight: 600; margin-bottom: 8px; color: #ffffff; }
+    .ref-box { background: #080b11; border: 1px dashed rgba(229,9,20,0.5); border-radius: 8px; padding: 14px 20px; margin: 20px 0; text-align: center; }
+    .ref-label { font-size: 11px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px; }
+    .ref-value { font-family: 'Courier New', monospace; font-size: 22px; font-weight: bold; color: #e50914; letter-spacing: 2px; }
+    .ticket-card { background: #1a2234; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid rgba(255,255,255,0.06); }
+    .movie-title { font-size: 20px; font-weight: bold; color: #ffffff; margin-bottom: 12px; }
+    .seats-box { margin: 16px 0; }
+    .footer { padding: 20px 28px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: #64748b; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">IMOVIES CINEMA</div>
+      <div class="tagline">Official Digital Admission Ticket</div>
+    </div>
+    <div class="body">
+      <div class="greeting">Hi ${name || 'Movie Lover'}! 🎬</div>
+      <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">
+        Your movie reservation has been successfully confirmed. Present this e-ticket or the QR code at the cinema entry gate.
+      </p>
+
+      <div class="ref-box">
+        <div class="ref-label">Booking Reference</div>
+        <div class="ref-value">${booking.bookingReference}</div>
+      </div>
+
+      <div class="ticket-card">
+        <div class="movie-title">${movie.title || 'Movie'}</div>
+        <table style="width: 100%; font-size: 14px; color: #94a3b8; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">Cinema / Theatre:</td>
+            <td style="padding: 6px 0; text-align: right; color: #ffffff; font-weight: 600;">${theatre.name || 'Cinema'}${theatre.city ? `, ${theatre.city}` : ''}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">Auditorium / Screen:</td>
+            <td style="padding: 6px 0; text-align: right; color: #ffffff; font-weight: 600;">${screen.name || 'Audi'} (${screen.screenType || '2D/3D'})</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">Date:</td>
+            <td style="padding: 6px 0; text-align: right; color: #ffffff; font-weight: 600;">${showDate}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; color: #64748b;">Showtime:</td>
+            <td style="padding: 6px 0; text-align: right; color: #ffffff; font-weight: 600;">${showTime}</td>
+          </tr>
+        </table>
+
+        <div class="seats-box" style="margin-top: 14px;">
+          <div style="font-size: 12px; color: #64748b; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">Reserved Seats:</div>
+          <div>${seatBadges}</div>
+        </div>
+
+        <table style="width: 100%; font-size: 15px; font-weight: bold; color: #ffffff; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 14px; padding-top: 12px;">
+          <tr>
+            <td style="padding-top: 10px;">Total Paid:</td>
+            <td style="padding-top: 10px; text-align: right; color: #22c55e;">₹${booking.grandTotal}</td>
+          </tr>
+        </table>
+      </div>
+
+      ${qrImgTag ? `
+      <div style="text-align: center; margin: 24px 0;">
+        <div style="display: inline-block; background: #ffffff; padding: 12px; border-radius: 8px;">
+          ${qrImgTag}
+          <div style="font-size: 11px; color: #333333; margin-top: 6px; font-family: monospace;">Scan at Entry</div>
+        </div>
+      </div>` : ''}
+
+      <p style="color: #64748b; font-size: 12px; text-align: center; margin-top: 20px;">
+        Please arrive 15 minutes prior to the showtime. Enjoy the show!
+      </p>
+    </div>
+    <div class="footer">
+      IMovies Entertainment Systems &bull; You received this email because you made a reservation on IMovies.<br>
+      &copy; ${new Date().getFullYear()} IMovies Cinema Systems.
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+    const plainText = `
+IMovies Ticket Confirmation
+Booking Reference: ${booking.bookingReference}
+
+Hi ${name || 'Movie Lover'}!
+Your movie tickets have been confirmed.
+
+Movie: ${movie.title || 'Movie'}
+Theatre: ${theatre.name || 'Cinema'}, ${theatre.city || ''}
+Screen: ${screen.name || 'Audi'}
+Date: ${showDate}
+Time: ${showTime}
+Seats: ${seatNumbers}
+Total Paid: ₹${booking.grandTotal}
+
+Please show this reference code or your QR code at the cinema gate.
+Enjoy your movie!
+`;
+
+    const mailOptions = {
+      from: env.EMAIL_FROM,
+      to,
+      subject: `Booking Confirmed! [${booking.bookingReference}] - ${movie.title || 'IMovies Cinema'}`,
+      html: htmlContent,
+      text: plainText,
+      attachments
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+
+      if (this.isMock) {
+        logger.info(`=======================================================`);
+        logger.info(`📧 [DEV EMAIL MOCK] Ticket Confirmation Email for ${to}`);
+        logger.info(`🎟️ Ref: ${booking.bookingReference} | Movie: ${movie.title || 'Movie'} | Total: ₹${booking.grandTotal}`);
+        logger.info(`💺 Seats: ${seatNumbers}`);
+        logger.info(`=======================================================`);
+      } else {
+        logger.info(`Booking confirmation email sent to ${to} (MessageId: ${info.messageId})`);
+      }
+
+      return {
+        success: true,
+        messageId: info.messageId || 'mock-id',
+        isMock: this.isMock
+      };
+    } catch (err) {
+      logger.error(`Failed to send booking confirmation email to ${to}:`, err.message);
+      return {
+        success: false,
+        error: err.message
+      };
+    }
+  }
 }
 
 export const emailService = new EmailService();
