@@ -25,6 +25,11 @@
   "devDependencies": {
     "concurrently": "^8.2.2"
   },
+  "overrides": {
+    "esbuild": "^0.25.0",
+    "tinypool": "^2.2.0",
+    "vite": "^6.4.5"
+  },
   "keywords": [
     "mern",
     "cinema-management",
