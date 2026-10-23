@@ -9,6 +9,101 @@ import { emailService } from '../services/emailService.js';
 import { env, isProduction } from '../config/environment.js';
 import { logger } from '../utils/logger.js';
 
+// Rate limiting & Progressive delay state
+const DUMMY_BCRYPT_HASH = '$2a$12$e8uq5e5cO.a9R8d2E4N5ueq7mR9sB2J7g1zF4uV6oP8yL1kT5m8Na';
+
+const loginAttempts = new Map();
+const forgotPasswordAttempts = new Map();
+
+const getClientIp = (req) => {
+  return (
+    req.headers['x-forwarded-for']?.split(',')[0].trim() ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    '127.0.0.1'
+  );
+};
+
+const trackLoginAttempt = async (req, email) => {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const WINDOW_MS = 15 * 60 * 1000;
+
+  for (const [k, v] of loginAttempts.entries()) {
+    if (now - v.firstAttempt > WINDOW_MS) {
+      loginAttempts.delete(k);
+    }
+  }
+
+  const ipKey = `ip:${ip}`;
+  const emailKey = `email:${(email || '').toLowerCase().trim()}`;
+
+  const ipRecord = loginAttempts.get(ipKey) || { count: 0, firstAttempt: now };
+  const emailRecord = loginAttempts.get(emailKey) || { count: 0, firstAttempt: now };
+
+  if (emailRecord.count >= 10 || ipRecord.count >= 30) {
+    const error = new Error('Too many login attempts. Please try again in 15 minutes.');
+    error.statusCode = 429;
+    throw error;
+  }
+
+  const currentAttempts = Math.max(emailRecord.count, ipRecord.count);
+  if (currentAttempts >= 2) {
+    const delayMs = Math.min(2000, (currentAttempts - 1) * 300);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+};
+
+const recordFailedLogin = (req, email) => {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const ipKey = `ip:${ip}`;
+  const emailKey = `email:${(email || '').toLowerCase().trim()}`;
+
+  const ipRecord = loginAttempts.get(ipKey) || { count: 0, firstAttempt: now };
+  const emailRecord = loginAttempts.get(emailKey) || { count: 0, firstAttempt: now };
+
+  ipRecord.count += 1;
+  loginAttempts.set(ipKey, ipRecord);
+
+  emailRecord.count += 1;
+  loginAttempts.set(emailKey, emailRecord);
+};
+
+const clearLoginAttempts = (req, email) => {
+  const emailKey = `email:${(email || '').toLowerCase().trim()}`;
+  loginAttempts.delete(emailKey);
+};
+
+const checkForgotPasswordRateLimit = (req, email) => {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  const WINDOW_MS = 15 * 60 * 1000;
+
+  for (const [k, v] of forgotPasswordAttempts.entries()) {
+    if (now - v.firstAttempt > WINDOW_MS) {
+      forgotPasswordAttempts.delete(k);
+    }
+  }
+
+  const ipKey = `fp_ip:${ip}`;
+  const emailKey = `fp_email:${(email || '').toLowerCase().trim()}`;
+
+  const ipRecord = forgotPasswordAttempts.get(ipKey) || { count: 0, firstAttempt: now };
+  const emailRecord = forgotPasswordAttempts.get(emailKey) || { count: 0, firstAttempt: now };
+
+  if (emailRecord.count >= 5 || ipRecord.count >= 20) {
+    const error = new Error('Too many password reset requests. Please try again later.');
+    error.statusCode = 429;
+    throw error;
+  }
+
+  ipRecord.count += 1;
+  emailRecord.count += 1;
+  forgotPasswordAttempts.set(ipKey, ipRecord);
+  forgotPasswordAttempts.set(emailKey, emailRecord);
+};
+
 export const register = async (req, res, next) => {
   try {
     const { name, email, password, phone } = req.body;
@@ -16,7 +111,22 @@ export const register = async (req, res, next) => {
 
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
-      return errorResponse(res, 'An account with this email address already exists.', 409);
+      // Dummy hashing to equalize CPU timing against user enumeration
+      await bcrypt.hash(password, 12);
+      // Respond identically to prevent email enumeration
+      return successResponse(
+        res,
+        {
+          user: {
+            email: normalizedEmail,
+            isEmailVerified: false
+          },
+          email: normalizedEmail,
+          requiresVerification: true
+        },
+        'Registration successful! A verification email has been sent to your email address.',
+        201
+      );
     }
 
     const salt = await bcrypt.genSalt(12);
@@ -309,10 +419,14 @@ export const forgotPassword = async (req, res, next) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+    checkForgotPasswordRateLimit(req, normalizedEmail);
+
     const user = await User.findOne({ email: normalizedEmail });
     const genericMsg = 'If an account with that email address exists, a password reset link has been sent.';
 
-    if (!user || user.accountStatus === 'suspended') {
+    if (!user || user.accountStatus !== 'active') {
+      // Dummy work to equalize CPU timing
+      await bcrypt.hash(normalizedEmail, 10);
       return successResponse(res, null, genericMsg);
     }
 
@@ -336,6 +450,9 @@ export const forgotPassword = async (req, res, next) => {
 
     return successResponse(res, null, genericMsg);
   } catch (error) {
+    if (error.statusCode === 429) {
+      return errorResponse(res, error.message, 429);
+    }
     next(error);
   }
 };
@@ -353,12 +470,13 @@ export const resetPassword = async (req, res, next) => {
       passwordResetExpiresAt: { $gt: new Date() }
     });
 
-    if (!user) {
+    if (!user || user.accountStatus !== 'active') {
       return errorResponse(res, 'Invalid or expired password reset token.', 400);
     }
 
     const salt = await bcrypt.genSalt(12);
     user.passwordHash = await bcrypt.hash(password, salt);
+    // Single-use token enforcement: clear token and expiry immediately
     user.passwordResetTokenHash = null;
     user.passwordResetExpiresAt = null;
     user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all prior sessions immediately
@@ -373,23 +491,27 @@ export const resetPassword = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = (email || '').toLowerCase().trim();
+
+    // Check progressive delay and rate limit before processing credentials
+    await trackLoginAttempt(req, normalizedEmail);
 
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
+      // Dummy bcrypt for unknown users to equalize timing against enumeration
+      await bcrypt.compare(password || '', DUMMY_BCRYPT_HASH);
+      recordFailedLogin(req, normalizedEmail);
       return errorResponse(res, 'Invalid email or password credentials.', 401);
     }
 
-    if (user.accountStatus === 'suspended') {
-      return errorResponse(res, 'Your account is suspended. Please contact customer support.', 403);
-    }
-
+    // Verify password FIRST before checking verification or account status
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      recordFailedLogin(req, normalizedEmail);
       return errorResponse(res, 'Invalid email or password credentials.', 401);
     }
 
-    // Block unverified users from logging in
+    // Return EMAIL_NOT_VERIFIED only after correct password
     if (!user.isEmailVerified) {
       return errorResponse(
         res,
@@ -402,6 +524,14 @@ export const login = async (req, res, next) => {
         }
       );
     }
+
+    // Reject suspended/deleted users
+    if (user.accountStatus !== 'active') {
+      return errorResponse(res, 'Your account is suspended or inactive. Please contact customer support.', 403);
+    }
+
+    // Clear failed login attempts on successful authentication
+    clearLoginAttempts(req, normalizedEmail);
 
     // Rehash at login: upgrade bcrypt rounds to 12 if previously lower
     try {
@@ -438,6 +568,9 @@ export const login = async (req, res, next) => {
       'Welcome back! Login successful.'
     );
   } catch (error) {
+    if (error.statusCode === 429) {
+      return errorResponse(res, error.message, 429);
+    }
     next(error);
   }
 };

@@ -38,7 +38,7 @@ const userSchema = new mongoose.Schema(
     },
     accountStatus: {
       type: String,
-      enum: ['active', 'suspended'],
+      enum: ['active', 'suspended', 'deleted'],
       default: 'active'
     },
     tokenVersion: {

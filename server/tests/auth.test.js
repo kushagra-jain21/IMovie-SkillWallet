@@ -34,7 +34,7 @@ describe('Auth API Integration Tests', () => {
     expect(res.body.data.user.passwordHash).toBeUndefined();
   });
 
-  it('should reject registration with duplicate email', async () => {
+  it('should respond identically for duplicate registration to prevent email enumeration', async () => {
     const res = await request(app)
       .post('/api/v1/auth/register')
       .send({
@@ -44,8 +44,9 @@ describe('Auth API Integration Tests', () => {
         confirmPassword: 'Password@123'
       });
 
-    expect(res.status).toBe(409);
-    expect(res.body.success).toBe(false);
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.requiresVerification).toBe(true);
   });
 
   it('should reject login for unverified user with code EMAIL_NOT_VERIFIED', async () => {

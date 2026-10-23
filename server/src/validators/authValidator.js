@@ -1,6 +1,43 @@
 import { body } from 'express-validator';
 import { validate } from '../middleware/validator.js';
 
+const COMMON_PASSWORDS = new Set([
+  'password',
+  'password123',
+  '1234567890',
+  '123456789',
+  '12345678',
+  'qwertyuiop',
+  'admin12345',
+  'iloveyou123',
+  'welcome123',
+  'passcode123',
+  'sunshine123',
+  'princess123',
+  'football123',
+  'monkey12345',
+  'charlie1234',
+  'aa12345678',
+  'dragon12345',
+  'master12345'
+]);
+
+export const validatePasswordPolicy = (value) => {
+  if (!value || typeof value !== 'string') {
+    throw new Error('Password is required');
+  }
+  if (value.length < 10) {
+    throw new Error('Password must be at least 10 characters long');
+  }
+  if (Buffer.byteLength(value, 'utf8') > 72) {
+    throw new Error('Password must not exceed 72 bytes');
+  }
+  if (COMMON_PASSWORDS.has(value.toLowerCase())) {
+    throw new Error('This password is too common and easily guessed. Please choose a more secure password.');
+  }
+  return true;
+};
+
 export const registerValidator = [
   body('name')
     .trim()
@@ -18,16 +55,7 @@ export const registerValidator = [
   body('password')
     .notEmpty()
     .withMessage('Password is required')
-    .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters long')
-    .matches(/[a-z]/)
-    .withMessage('Password must contain at least one lowercase letter')
-    .matches(/[A-Z]/)
-    .withMessage('Password must contain at least one uppercase letter')
-    .matches(/\d/)
-    .withMessage('Password must contain at least one number')
-    .matches(/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/)
-    .withMessage('Password must contain at least one special character'),
+    .custom(validatePasswordPolicy),
   body('confirmPassword')
     .optional({ checkFalsy: true })
     .custom((value, { req }) => {
@@ -63,16 +91,7 @@ export const resetPasswordValidator = [
   body('password')
     .notEmpty()
     .withMessage('Password is required')
-    .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters long')
-    .matches(/[a-z]/)
-    .withMessage('Password must contain at least one lowercase letter')
-    .matches(/[A-Z]/)
-    .withMessage('Password must contain at least one uppercase letter')
-    .matches(/\d/)
-    .withMessage('Password must contain at least one number')
-    .matches(/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/)
-    .withMessage('Password must contain at least one special character'),
+    .custom(validatePasswordPolicy),
   body('confirmPassword')
     .optional({ checkFalsy: true })
     .custom((value, { req }) => {

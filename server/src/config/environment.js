@@ -61,7 +61,8 @@ export const env = {
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173',
   MONGODB_URI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/imovies',
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'imovies_super_secret_jwt_access_token_key_change_in_production_2026',
-  JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN || '7d',
+  // Access token lifetime default: 2 hours (1-2h policy)
+  JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN || '2h',
   PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER || 'simulated',
   PAYMENT_TEST_MODE: process.env.PAYMENT_TEST_MODE !== 'false',
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || '',

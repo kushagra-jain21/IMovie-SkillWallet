@@ -12,14 +12,17 @@ export const generateAccessToken = (user) => {
     },
     env.JWT_ACCESS_SECRET,
     {
-      expiresIn: env.JWT_ACCESS_EXPIRES_IN || '7d'
+      expiresIn: env.JWT_ACCESS_EXPIRES_IN || '2h',
+      algorithm: 'HS256'
     }
   );
 };
 
 export const verifyAccessToken = (token) => {
   try {
-    return jwt.verify(token, env.JWT_ACCESS_SECRET);
+    return jwt.verify(token, env.JWT_ACCESS_SECRET, {
+      algorithms: ['HS256']
+    });
   } catch (error) {
     return null;
   }

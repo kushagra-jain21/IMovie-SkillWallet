@@ -317,15 +317,57 @@ describe('Phase 2 Auth & Session Hardening Test Suite', () => {
         .set('Authorization', `Bearer ${preResetToken}`);
       expect(meWithOldToken.status).toBe(401);
 
-      // User can log in with new password
-      const newLoginRes = await request(app)
-        .post('/api/v1/auth/login')
+      // 4. Test Single-Use: Reusing the same reset token must be rejected with 400
+      const reusedResetRes = await request(app)
+        .post('/api/v1/auth/reset-password')
         .send({
-          email: resetUserEmail,
-          password: 'NewStrongPassword@2026!'
+          token: testRawToken,
+          password: 'AnotherPassword@2026!',
+          confirmPassword: 'AnotherPassword@2026!'
         });
-      expect(newLoginRes.status).toBe(200);
-      expect(newLoginRes.body.data.token).toBeDefined();
+      expect(reusedResetRes.status).toBe(400);
+      expect(reusedResetRes.body.message).toContain('Invalid or expired password reset token');
+    });
+
+    it('rejects expired password reset tokens', async () => {
+      const expiredRawToken = 'expired_raw_token_hex_string_67890';
+      const crypto = await import('crypto');
+      const expiredHash = crypto.createHash('sha256').update(expiredRawToken).digest('hex');
+
+      await User.updateOne(
+        { email: resetUserEmail },
+        {
+          passwordResetTokenHash: expiredHash,
+          passwordResetExpiresAt: new Date(Date.now() - 60 * 1000) // 1 minute in the past
+        }
+      );
+
+      const res = await request(app)
+        .post('/api/v1/auth/reset-password')
+        .send({
+          token: expiredRawToken,
+          password: 'ValidPassword1234!',
+          confirmPassword: 'ValidPassword1234!'
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('Invalid or expired password reset token');
+    });
+
+    it('returns identical generic responses for forgot-password for existing and non-existing emails', async () => {
+      const resExisting = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: resetUserEmail });
+
+      const resNonExisting = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'nonexistent_account_xyz@testmovies.com' });
+
+      expect(resExisting.status).toBe(200);
+      expect(resNonExisting.status).toBe(200);
+      expect(resExisting.body.message).toBe(resNonExisting.body.message);
+      expect(resExisting.body.success).toBe(true);
+      expect(resNonExisting.body.success).toBe(true);
     });
   });
 
@@ -358,6 +400,55 @@ describe('Phase 2 Auth & Session Hardening Test Suite', () => {
         .set('X-IMovies-Client', '1');
 
       expect(allowedRes.status).toBe(200);
+    });
+  });
+
+  describe('8. HS256 Algorithm Pinning and Rejection of Non-HS256 Tokens', () => {
+    it('pins HS256 algorithm and rejects tokens verified with other algorithms or none', async () => {
+      const { verifyAccessToken } = await import('../src/utils/token.js');
+      // Token signed with 'none' algorithm must fail verification
+      const forgedNoneToken = jwt.sign(
+        { id: '123456789012345678901234', email: 'forged@test.com' },
+        '',
+        { algorithm: 'none' }
+      );
+
+      const verified = verifyAccessToken(forgedNoneToken);
+      expect(verified).toBeNull();
+    });
+  });
+
+  describe('9. Auth Middleware Suspended & Deleted User Enforcement on Every Request', () => {
+    it('rejects suspended users on every request immediately even with valid token', async () => {
+      const suspendedEmail = 'suspended_user@testmovies.com';
+      const user = await User.create({
+        name: 'Suspended Candidate',
+        email: suspendedEmail,
+        passwordHash: await bcrypt.hash('SecurePassword@123', 10),
+        role: 'user',
+        tokenVersion: 0,
+        isEmailVerified: true,
+        accountStatus: 'active'
+      });
+
+      const { generateAccessToken } = await import('../src/utils/token.js');
+      const token = generateAccessToken(user);
+
+      // Initially active request succeeds
+      const okRes = await request(app)
+        .get('/api/v1/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+      expect(okRes.status).toBe(200);
+
+      // Suspend user in DB
+      await User.updateOne({ _id: user._id }, { accountStatus: 'suspended' });
+
+      // Immediate subsequent request must fail with 401
+      const blockedRes = await request(app)
+        .get('/api/v1/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+      expect(blockedRes.status).toBe(401);
+      expect(blockedRes.body.message).toContain('User account is not active, suspended, or deleted');
     });
   });
 });

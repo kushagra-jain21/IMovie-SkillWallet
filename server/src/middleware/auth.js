@@ -55,8 +55,9 @@ export const authenticate = async (req, res, next) => {
       return errorResponse(res, 'Session expired or invalidated. Please log in again.', 401);
     }
 
-    if (user.accountStatus === 'suspended') {
-      return errorResponse(res, 'Your account has been suspended. Please contact support.', 403);
+    // Reject non-active, suspended, or deleted users on EVERY request
+    if (user.accountStatus !== 'active') {
+      return errorResponse(res, 'User account is not active, suspended, or deleted.', 401);
     }
 
     if (!user.isEmailVerified) {
@@ -104,7 +105,7 @@ export const optionalAuth = async (req, res, next) => {
       const decoded = verifyAccessToken(token);
       if (decoded && decoded.id) {
         const user = await User.findById(decoded.id);
-        if (user && user.accountStatus !== 'suspended') {
+        if (user && user.accountStatus === 'active') {
           const tokenVersion = decoded.tokenVersion !== undefined ? Number(decoded.tokenVersion) : 0;
           const userTokenVersion = user.tokenVersion !== undefined ? Number(user.tokenVersion) : 0;
           if (tokenVersion === userTokenVersion) {

@@ -66,8 +66,8 @@ describe('Email Verification Comprehensive Test Suite', () => {
     expect(new Date(user.emailVerificationExpiresAt).getTime()).toBeGreaterThan(Date.now());
   });
 
-  // 3. Duplicate email registration is rejected
-  it('3. Duplicate email registration is rejected with 409 Conflict', async () => {
+  // 3. Duplicate email registration responds identically
+  it('3. Duplicate email registration responds identically to prevent email enumeration', async () => {
     const res = await request(app)
       .post('/api/v1/auth/register')
       .send({
@@ -77,8 +77,9 @@ describe('Email Verification Comprehensive Test Suite', () => {
         confirmPassword: 'Password@123'
       });
 
-    expect(res.status).toBe(409);
-    expect(res.body.success).toBe(false);
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.requiresVerification).toBe(true);
   });
 
   // 8. Unverified users cannot log in
