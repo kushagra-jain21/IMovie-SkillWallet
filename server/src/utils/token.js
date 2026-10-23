@@ -7,11 +7,12 @@ export const generateAccessToken = (user) => {
       id: user._id.toString(),
       email: user.email,
       role: user.role,
-      name: user.name
+      name: user.name,
+      tokenVersion: user.tokenVersion !== undefined ? user.tokenVersion : 0
     },
     env.JWT_ACCESS_SECRET,
     {
-      expiresIn: env.JWT_ACCESS_EXPIRES_IN
+      expiresIn: env.JWT_ACCESS_EXPIRES_IN || '7d'
     }
   );
 };

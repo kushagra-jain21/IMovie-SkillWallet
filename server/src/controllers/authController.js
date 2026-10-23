@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { User } from '../models/User.js';
 import { generateAccessToken } from '../utils/token.js';
@@ -18,7 +19,7 @@ export const register = async (req, res, next) => {
       return errorResponse(res, 'An account with this email address already exists.', 409);
     }
 
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(password, salt);
 
     // Generate cryptographically secure email verification token and 6-digit OTP
@@ -36,16 +37,18 @@ export const register = async (req, res, next) => {
       passwordHash,
       phone: phone ? phone.trim() : '',
       role: ROLES.USER,
+      tokenVersion: 0,
       isEmailVerified: false,
       emailVerifiedAt: null,
       emailVerificationTokenHash: tokenHash,
       emailVerificationOtpHash: otpHash,
       emailVerificationExpiresAt: expiresAt,
       emailVerificationAttempts: 0,
+      emailVerificationLockedUntil: null,
       emailVerificationLastSentAt: new Date()
     });
 
-    // Send verification email asynchronously
+    // Send verification email
     try {
       await emailService.sendVerificationEmail({
         to: user.email,
@@ -54,8 +57,16 @@ export const register = async (req, res, next) => {
         otp: verificationOtp
       });
     } catch (emailErr) {
-      logger.error('Failed to send verification email on registration:', emailErr.message);
-      // We don't rollback the user, but inform the client that resend may be needed
+      if (isProduction()) {
+        // Rollback created user in production so we do not leave half-created orphan accounts
+        await User.findByIdAndDelete(user._id);
+        logger.error('Registration aborted: SMTP delivery failed in production. Rolled back half-created account.');
+        const err = new Error('Failed to deliver verification email. Account registration could not be completed.');
+        err.statusCode = 502;
+        throw err;
+      } else {
+        logger.error('Failed to send verification email on registration (dev/test):', emailErr.message);
+      }
     }
 
     // Do NOT issue access token or set auth cookie for unverified accounts
@@ -106,6 +117,7 @@ export const verifyEmail = async (req, res, next) => {
       user.emailVerificationOtpHash = null;
       user.emailVerificationExpiresAt = null;
       user.emailVerificationAttempts = 0;
+      user.emailVerificationLockedUntil = null;
       await user.save();
 
       return successResponse(
@@ -128,11 +140,12 @@ export const verifyEmail = async (req, res, next) => {
         return successResponse(res, { user: user.toSafeObject() }, 'Email is already verified. You can log in.');
       }
 
-      // Rate limit verification attempts (Max 5 attempts before requiring new OTP)
-      if (user.emailVerificationAttempts >= 5) {
+      // Check if temporarily locked
+      if (user.emailVerificationLockedUntil && user.emailVerificationLockedUntil > new Date()) {
+        const retryMinutes = Math.max(1, Math.ceil((user.emailVerificationLockedUntil.getTime() - Date.now()) / (60 * 1000)));
         return errorResponse(
           res,
-          'Maximum verification attempts exceeded. Please request a new verification code.',
+          `Too many failed attempts. Verification is temporarily locked for ${retryMinutes} minute${retryMinutes === 1 ? '' : 's'}.`,
           429,
           null,
           'TOO_MANY_ATTEMPTS'
@@ -145,10 +158,54 @@ export const verifyEmail = async (req, res, next) => {
       }
 
       const submittedOtpHash = hashVerificationValue(otp);
-      if (user.emailVerificationOtpHash !== submittedOtpHash) {
-        user.emailVerificationAttempts = (user.emailVerificationAttempts || 0) + 1;
-        await user.save();
-        const remainingAttempts = Math.max(0, 5 - user.emailVerificationAttempts);
+
+      // Atomically check threshold and increment attempt counter (prevents race conditions)
+      const updatedUser = await User.findOneAndUpdate(
+        {
+          _id: user._id,
+          emailVerificationAttempts: { $lt: 5 },
+          $or: [
+            { emailVerificationLockedUntil: null },
+            { emailVerificationLockedUntil: { $lte: new Date() } }
+          ]
+        },
+        {
+          $inc: { emailVerificationAttempts: 1 }
+        },
+        { new: true }
+      );
+
+      if (!updatedUser) {
+        // Parallel attempt or threshold reached: activate 15-minute temporary cooldown (no hard lockout)
+        const lockUntil = new Date(Date.now() + 15 * 60 * 1000);
+        await User.findByIdAndUpdate(user._id, { emailVerificationLockedUntil: lockUntil });
+        return errorResponse(
+          res,
+          'Maximum verification attempts exceeded. Verification is temporarily locked for 15 minutes.',
+          429,
+          null,
+          'TOO_MANY_ATTEMPTS'
+        );
+      }
+
+      // Constant-time hash comparison
+      const isMatch = Boolean(
+        user.emailVerificationOtpHash &&
+        user.emailVerificationOtpHash.length === submittedOtpHash.length &&
+        crypto.timingSafeEqual(
+          Buffer.from(user.emailVerificationOtpHash, 'utf-8'),
+          Buffer.from(submittedOtpHash, 'utf-8')
+        )
+      );
+
+      if (!isMatch) {
+        const attemptsUsed = updatedUser.emailVerificationAttempts;
+        if (attemptsUsed >= 5) {
+          await User.findByIdAndUpdate(user._id, {
+            emailVerificationLockedUntil: new Date(Date.now() + 15 * 60 * 1000)
+          });
+        }
+        const remainingAttempts = Math.max(0, 5 - attemptsUsed);
         return errorResponse(
           res,
           `Invalid verification code. ${remainingAttempts} attempts remaining.`,
@@ -159,17 +216,18 @@ export const verifyEmail = async (req, res, next) => {
       }
 
       // Mark user as verified and invalidate token/OTP
-      user.isEmailVerified = true;
-      user.emailVerifiedAt = new Date();
-      user.emailVerificationTokenHash = null;
-      user.emailVerificationOtpHash = null;
-      user.emailVerificationExpiresAt = null;
-      user.emailVerificationAttempts = 0;
-      await user.save();
+      updatedUser.isEmailVerified = true;
+      updatedUser.emailVerifiedAt = new Date();
+      updatedUser.emailVerificationTokenHash = null;
+      updatedUser.emailVerificationOtpHash = null;
+      updatedUser.emailVerificationExpiresAt = null;
+      updatedUser.emailVerificationAttempts = 0;
+      updatedUser.emailVerificationLockedUntil = null;
+      await updatedUser.save();
 
       return successResponse(
         res,
-        { user: user.toSafeObject() },
+        { user: updatedUser.toSafeObject() },
         'Your email address has been verified successfully! You can now log in.'
       );
     }
@@ -190,17 +248,13 @@ export const resendVerification = async (req, res, next) => {
     const normalizedEmail = email.toLowerCase().trim();
     const user = await User.findOne({ email: normalizedEmail });
 
-    // Prevent user enumeration: generic success if user doesn't exist
-    if (!user) {
+    // Prevent user enumeration: generic success if user doesn't exist or is already verified
+    if (!user || user.isEmailVerified) {
       return successResponse(
         res,
         null,
         'If an account with that email address exists and is unverified, a verification email has been sent.'
       );
-    }
-
-    if (user.isEmailVerified) {
-      return errorResponse(res, 'This email address is already verified. You can log in directly.', 400, null, 'ALREADY_VERIFIED');
     }
 
     // Enforce cooldown between resend requests (60 seconds)
@@ -219,7 +273,7 @@ export const resendVerification = async (req, res, next) => {
       }
     }
 
-    // Generate new token & OTP and invalidate old ones
+    // Generate new token & OTP and reset attempt counter & locks
     const verificationToken = generateVerificationToken();
     const verificationOtp = generateVerificationOtp();
     const tokenHash = hashVerificationValue(verificationToken);
@@ -230,6 +284,7 @@ export const resendVerification = async (req, res, next) => {
     user.emailVerificationOtpHash = otpHash;
     user.emailVerificationExpiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
     user.emailVerificationAttempts = 0;
+    user.emailVerificationLockedUntil = null;
     user.emailVerificationLastSentAt = new Date();
     await user.save();
 
@@ -241,6 +296,75 @@ export const resendVerification = async (req, res, next) => {
     });
 
     return successResponse(res, null, 'A new verification email has been sent to your email address.');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return errorResponse(res, 'Email address is required.', 400);
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await User.findOne({ email: normalizedEmail });
+    const genericMsg = 'If an account with that email address exists, a password reset link has been sent.';
+
+    if (!user || user.accountStatus === 'suspended') {
+      return successResponse(res, null, genericMsg);
+    }
+
+    // Generate 32-byte secure random token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+    user.passwordResetTokenHash = resetTokenHash;
+    user.passwordResetExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    await user.save();
+
+    try {
+      await emailService.sendPasswordResetEmail({
+        to: user.email,
+        name: user.name,
+        resetToken
+      });
+    } catch (err) {
+      logger.error('Failed to send password reset email:', err.message);
+    }
+
+    return successResponse(res, null, genericMsg);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      return errorResponse(res, 'Reset token and new password are required.', 400);
+    }
+
+    const resetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const user = await User.findOne({
+      passwordResetTokenHash: resetTokenHash,
+      passwordResetExpiresAt: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return errorResponse(res, 'Invalid or expired password reset token.', 400);
+    }
+
+    const salt = await bcrypt.genSalt(12);
+    user.passwordHash = await bcrypt.hash(password, salt);
+    user.passwordResetTokenHash = null;
+    user.passwordResetExpiresAt = null;
+    user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all prior sessions immediately
+    await user.save();
+
+    return successResponse(res, null, 'Password has been reset successfully. Please log in with your new password.');
   } catch (error) {
     next(error);
   }
@@ -279,14 +403,31 @@ export const login = async (req, res, next) => {
       );
     }
 
+    // Rehash at login: upgrade bcrypt rounds to 12 if previously lower
+    try {
+      const rounds = bcrypt.getRounds(user.passwordHash);
+      if (rounds < 12) {
+        const upgradedSalt = await bcrypt.genSalt(12);
+        user.passwordHash = await bcrypt.hash(password, upgradedSalt);
+        await user.save();
+        logger.info(`Upgraded bcrypt salt rounds to 12 for user ${user._id}`);
+      }
+    } catch (hashErr) {
+      // Continue even if rounds reading fails
+    }
+
     const token = generateAccessToken(user);
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: isProduction(),
-      sameSite: isProduction() ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    // Header auth with no cookie unless CSRF-protected
+    const isCsrfProtectedClient = Boolean(req.headers['x-imovies-client'] || req.headers['x-requested-with']);
+    if (isCsrfProtectedClient) {
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: isProduction(),
+        sameSite: isProduction() ? 'none' : 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+    }
 
     return successResponse(
       res,
@@ -306,6 +447,11 @@ export const getMe = async (req, res) => {
 };
 
 export const logout = async (req, res) => {
+  // Invalidate session across devices by incrementing tokenVersion
+  if (req.user) {
+    await User.findByIdAndUpdate(req.user._id, { $inc: { tokenVersion: 1 } });
+  }
+
   res.clearCookie('token', {
     httpOnly: true,
     secure: isProduction(),

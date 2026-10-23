@@ -18,8 +18,16 @@ export const registerValidator = [
   body('password')
     .notEmpty()
     .withMessage('Password is required')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters long'),
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters long')
+    .matches(/[a-z]/)
+    .withMessage('Password must contain at least one lowercase letter')
+    .matches(/[A-Z]/)
+    .withMessage('Password must contain at least one uppercase letter')
+    .matches(/\d/)
+    .withMessage('Password must contain at least one number')
+    .matches(/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/)
+    .withMessage('Password must contain at least one special character'),
   body('confirmPassword')
     .optional({ checkFalsy: true })
     .custom((value, { req }) => {
@@ -33,6 +41,46 @@ export const registerValidator = [
     .trim()
     .isMobilePhone()
     .withMessage('Please enter a valid phone number'),
+  validate
+];
+
+export const forgotPasswordValidator = [
+  body('email')
+    .trim()
+    .notEmpty()
+    .withMessage('Email is required')
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail(),
+  validate
+];
+
+export const resetPasswordValidator = [
+  body('token')
+    .trim()
+    .notEmpty()
+    .withMessage('Reset token is required'),
+  body('password')
+    .notEmpty()
+    .withMessage('Password is required')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters long')
+    .matches(/[a-z]/)
+    .withMessage('Password must contain at least one lowercase letter')
+    .matches(/[A-Z]/)
+    .withMessage('Password must contain at least one uppercase letter')
+    .matches(/\d/)
+    .withMessage('Password must contain at least one number')
+    .matches(/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/)
+    .withMessage('Password must contain at least one special character'),
+  body('confirmPassword')
+    .optional({ checkFalsy: true })
+    .custom((value, { req }) => {
+      if (req.body.confirmPassword && value !== req.body.password) {
+        throw new Error('Passwords do not match');
+      }
+      return true;
+    }),
   validate
 ];
 

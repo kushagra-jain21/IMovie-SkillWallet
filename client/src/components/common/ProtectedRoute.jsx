@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import { sanitizeRedirectPath } from '../../utils/sanitizeRedirect.js';
 
 export const ProtectedRoute = ({ children }) => {
   const { isAuthenticated, loading } = useSelector((state) => state.auth);
@@ -17,7 +18,8 @@ export const ProtectedRoute = ({ children }) => {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+    const safeRedirect = sanitizeRedirectPath(location.pathname + location.search, '/');
+    return <Navigate to={`/login?redirect=${encodeURIComponent(safeRedirect)}`} replace />;
   }
 
   return children;

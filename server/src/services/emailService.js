@@ -211,6 +211,125 @@ If you did not sign up for an IMovies account, please disregard this message.
   }
 
   /**
+   * Sends a branded HTML password reset email with a secure single-use link
+   */
+  async sendPasswordResetEmail({ to, name, resetToken }) {
+    const clientUrl = env.CLIENT_URL || 'http://localhost:5173';
+    const resetUrl = `${clientUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(to)}`;
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Reset Your IMovies Password</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #0b0f17; color: #f8fafc; margin: 0; padding: 24px; }
+    .container { max-width: 580px; margin: 0 auto; background-color: #121824; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; }
+    .header { background: #e50914; padding: 28px 20px; text-align: center; }
+    .logo { font-size: 26px; font-weight: bold; color: #ffffff; letter-spacing: 1px; }
+    .body { padding: 32px 28px; line-height: 1.6; }
+    .greeting { font-size: 20px; font-weight: 600; margin-bottom: 16px; color: #ffffff; }
+    .text { color: #94a3b8; font-size: 15px; margin-bottom: 24px; }
+    .button-container { text-align: center; margin: 32px 0; }
+    .btn { background-color: #e50914; color: #ffffff !important; text-decoration: none; font-size: 16px; font-weight: bold; padding: 14px 32px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 14px rgba(229,9,20,0.4); }
+    .footer { padding: 20px 28px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 12px; color: #64748b; text-align: center; }
+    .fallback { word-break: break-all; color: #94a3b8; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">IMOVIES CINEMA</div>
+    </div>
+    <div class="body">
+      <div class="greeting">Hello, ${name || 'Customer'}!</div>
+      <p class="text">
+        We received a request to reset the password for your IMovies account. Click the button below to choose a new, secure password.
+      </p>
+
+      <div class="button-container">
+        <a href="${resetUrl}" target="_blank" class="btn">Reset Password</a>
+      </div>
+
+      <p class="text" style="font-size: 13px;">
+        ⏳ This password reset link will expire in <strong>15 minutes</strong>. If you did not request a password reset, you can safely ignore this email; your account remains secure.
+      </p>
+
+      <p class="text" style="font-size: 12px; margin-top: 24px;">
+        If the button above does not work, copy and paste this link into your browser:<br>
+        <span class="fallback">${resetUrl}</span>
+      </p>
+    </div>
+    <div class="footer">
+      &copy; ${new Date().getFullYear()} IMovies Cinema Systems. All rights reserved.
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+    const plainText = `
+Hello, ${name || 'Customer'}!
+
+We received a request to reset your IMovies password. Use the link below to set a new password:
+${resetUrl}
+
+This link will expire in 15 minutes. If you did not request this, please ignore this message.
+`;
+
+    const mailOptions = {
+      from: env.EMAIL_FROM,
+      to,
+      subject: 'Reset Your IMovies Password',
+      html: htmlContent,
+      text: plainText
+    };
+
+    if (isProduction() && (!this.transporter || this.isMock)) {
+      logger.error('EmailService: Outbound email delivery unavailable in production.');
+      const deliveryError = new Error('Failed to deliver password reset email. Please try again later.');
+      deliveryError.statusCode = 502;
+      throw deliveryError;
+    }
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+
+      if (this.isMock) {
+        if (env.NODE_ENV === 'development') {
+          logger.info(`=======================================================`);
+          logger.info(`📧 [DEV EMAIL MOCK] Password Reset Email for ${to}`);
+          logger.info(`🔗 Reset Link: ${resetUrl}`);
+          logger.info(`=======================================================`);
+        }
+      } else {
+        if (isProduction()) {
+          logger.info('Password reset email sent successfully.');
+        } else {
+          logger.info(`Password reset email sent to ${to} (MessageId: ${info.messageId})`);
+        }
+      }
+
+      return {
+        success: true,
+        messageId: info.messageId || 'mock-id',
+        isMock: this.isMock,
+        previewUrl: nodemailer.getTestMessageUrl(info) || null
+      };
+    } catch (err) {
+      if (isProduction()) {
+        logger.error('Failed to deliver password reset email in production.');
+      } else {
+        logger.error(`Failed to send password reset email to ${to}:`, err.message);
+      }
+      const deliveryError = new Error('Failed to deliver password reset email. Please try again later.');
+      deliveryError.statusCode = 502;
+      throw deliveryError;
+    }
+  }
+
+  /**
    * Sends a branded HTML booking confirmation email with ticket details and inline QR code
    */
   async sendBookingConfirmationEmail({ to, name, booking }) {

@@ -62,7 +62,6 @@ export const env = {
   MONGODB_URI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/imovies',
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'imovies_super_secret_jwt_access_token_key_change_in_production_2026',
   JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN || '7d',
-  REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET || 'imovies_super_secret_refresh_token_key_change_in_production_2026',
   PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER || 'simulated',
   PAYMENT_TEST_MODE: process.env.PAYMENT_TEST_MODE !== 'false',
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || '',

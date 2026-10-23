@@ -41,8 +41,20 @@ const userSchema = new mongoose.Schema(
       enum: ['active', 'suspended'],
       default: 'active'
     },
+    tokenVersion: {
+      type: Number,
+      default: 0
+    },
     passwordResetToken: String,
     passwordResetExpires: Date,
+    passwordResetTokenHash: {
+      type: String,
+      default: null
+    },
+    passwordResetExpiresAt: {
+      type: Date,
+      default: null
+    },
     isEmailVerified: {
       type: Boolean,
       default: false,
@@ -69,6 +81,10 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    emailVerificationLockedUntil: {
+      type: Date,
+      default: null
+    },
     emailVerificationLastSentAt: {
       type: Date,
       default: null
@@ -90,8 +106,11 @@ userSchema.methods.toSafeObject = function () {
   delete obj.passwordHash;
   delete obj.passwordResetToken;
   delete obj.passwordResetExpires;
+  delete obj.passwordResetTokenHash;
+  delete obj.passwordResetExpiresAt;
   delete obj.emailVerificationTokenHash;
   delete obj.emailVerificationOtpHash;
+  delete obj.emailVerificationLockedUntil;
   return obj;
 };
 

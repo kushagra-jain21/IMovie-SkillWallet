@@ -30,8 +30,13 @@ export const RegisterPage = () => {
       return;
     }
 
-    if (formData.password.length < 6) {
-      setValidationError('Password must be at least 6 characters long.');
+    if (formData.password.length < 8) {
+      setValidationError('Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/.test(formData.password)) {
+      setValidationError('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character.');
       return;
     }
 

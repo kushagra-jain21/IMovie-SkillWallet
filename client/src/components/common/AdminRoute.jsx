@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import { sanitizeRedirectPath } from '../../utils/sanitizeRedirect.js';
 
 export const AdminRoute = ({ children }) => {
   const { user, isAuthenticated, loading } = useSelector((state) => state.auth);
@@ -17,7 +18,8 @@ export const AdminRoute = ({ children }) => {
   }
 
   if (!isAuthenticated || user?.role !== 'admin') {
-    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname)}`} replace />;
+    const safeRedirect = sanitizeRedirectPath(location.pathname + location.search, '/');
+    return <Navigate to={`/login?redirect=${encodeURIComponent(safeRedirect)}`} replace />;
   }
 
   return children;
