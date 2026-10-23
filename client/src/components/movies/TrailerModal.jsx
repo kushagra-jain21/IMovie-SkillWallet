@@ -1,18 +1,40 @@
 import React from 'react';
 import { X } from 'lucide-react';
 
+export const getSafeYouTubeEmbedUrl = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    let videoId = null;
+
+    if (hostname === 'youtube.com' || hostname === 'www.youtube.com' || hostname === 'm.youtube.com') {
+      if (parsed.pathname === '/watch') {
+        videoId = parsed.searchParams.get('v');
+      } else if (parsed.pathname.startsWith('/embed/')) {
+        videoId = parsed.pathname.split('/embed/')[1]?.split('/')[0];
+      }
+    } else if (hostname === 'youtu.be') {
+      videoId = parsed.pathname.replace(/^\//, '').split('/')[0];
+    } else if (hostname === 'www.youtube-nocookie.com') {
+      if (parsed.pathname.startsWith('/embed/')) {
+        videoId = parsed.pathname.split('/embed/')[1]?.split('/')[0];
+      }
+    }
+
+    if (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+      return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 export const TrailerModal = ({ isOpen, onClose, trailerUrl, movieTitle }) => {
   if (!isOpen) return null;
 
-  // Transform standard YouTube URL to embed URL if needed
-  let embedUrl = trailerUrl;
-  if (trailerUrl && trailerUrl.includes('youtube.com/watch?v=')) {
-    const videoId = trailerUrl.split('v=')[1]?.split('&')[0];
-    embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-  } else if (trailerUrl && trailerUrl.includes('youtu.be/')) {
-    const videoId = trailerUrl.split('youtu.be/')[1]?.split('?')[0];
-    embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-  }
+  const embedUrl = getSafeYouTubeEmbedUrl(trailerUrl);
 
   return (
     <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 1060 }}>
