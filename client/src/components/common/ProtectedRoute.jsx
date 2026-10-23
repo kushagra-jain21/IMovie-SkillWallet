@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux';
 import { sanitizeRedirectPath } from '../../utils/sanitizeRedirect.js';
 
 export const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useSelector((state) => state.auth);
+  const { isAuthenticated, user, loading } = useSelector((state) => state.auth);
   const location = useLocation();
 
   if (loading) {
@@ -20,6 +20,10 @@ export const ProtectedRoute = ({ children }) => {
   if (!isAuthenticated) {
     const safeRedirect = sanitizeRedirectPath(location.pathname + location.search, '/');
     return <Navigate to={`/login?redirect=${encodeURIComponent(safeRedirect)}`} replace />;
+  }
+
+  if (user && user.isEmailVerified === false) {
+    return <Navigate to={`/verify-email?email=${encodeURIComponent(user.email || '')}`} replace />;
   }
 
   return children;
