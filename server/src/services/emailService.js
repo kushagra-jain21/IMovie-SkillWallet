@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer';
-import { env } from '../config/environment.js';
+import { env, isProduction } from '../config/environment.js';
 import { logger } from '../utils/logger.js';
 
 class EmailService {
@@ -10,7 +10,34 @@ class EmailService {
   }
 
   initTransporter() {
-    // If SMTP credentials are provided, use real SMTP transport
+    if (isProduction()) {
+      if (env.SMTP_USER && env.SMTP_PASS) {
+        try {
+          this.transporter = nodemailer.createTransport({
+            host: env.SMTP_HOST,
+            port: env.SMTP_PORT,
+            secure: env.SMTP_SECURE,
+            auth: {
+              user: env.SMTP_USER,
+              pass: env.SMTP_PASS
+            }
+          });
+          this.isMock = false;
+          logger.info(`EmailService: Real SMTP configured with host ${env.SMTP_HOST}:${env.SMTP_PORT}`);
+        } catch (err) {
+          logger.error('EmailService: Failed to configure production SMTP transporter:', err.message);
+          this.transporter = null;
+          this.isMock = false;
+        }
+      } else {
+        logger.warn('EmailService: Production environment has no SMTP credentials configured. Outbound email delivery disabled.');
+        this.transporter = null;
+        this.isMock = false;
+      }
+      return;
+    }
+
+    // Development & Test environments
     if (env.SMTP_USER && env.SMTP_PASS && env.NODE_ENV !== 'test') {
       try {
         this.transporter = nodemailer.createTransport({
@@ -34,11 +61,19 @@ class EmailService {
   }
 
   fallbackToMock() {
+    if (isProduction()) {
+      this.transporter = null;
+      this.isMock = false;
+      logger.error('EmailService: Mock transport is strictly prohibited in production.');
+      return;
+    }
     this.isMock = true;
     this.transporter = nodemailer.createTransport({
       jsonTransport: true
     });
-    logger.info('EmailService: Running in development mock mode (Verification codes and links will be logged to server console).');
+    if (env.NODE_ENV === 'development') {
+      logger.info('EmailService: Running in development mock mode (Verification codes and links logged for dev).');
+    }
   }
 
   /**
@@ -131,17 +166,30 @@ If you did not sign up for an IMovies account, please disregard this message.
       text: plainText
     };
 
+    if (isProduction() && (!this.transporter || this.isMock)) {
+      logger.error('EmailService: Outbound email delivery unavailable in production.');
+      const deliveryError = new Error('Failed to deliver verification email. Please try again later.');
+      deliveryError.statusCode = 502;
+      throw deliveryError;
+    }
+
     try {
       const info = await this.transporter.sendMail(mailOptions);
 
       if (this.isMock) {
-        logger.info(`=======================================================`);
-        logger.info(`📧 [DEV EMAIL MOCK] Verification Email for ${to}`);
-        logger.info(`🔑 6-Digit OTP: ${otp}`);
-        logger.info(`🔗 Direct Verification Link: ${verificationUrl}`);
-        logger.info(`=======================================================`);
+        if (env.NODE_ENV === 'development') {
+          logger.info(`=======================================================`);
+          logger.info(`📧 [DEV EMAIL MOCK] Verification Email for ${to}`);
+          logger.info(`🔑 6-Digit OTP: ${otp}`);
+          logger.info(`🔗 Direct Verification Link: ${verificationUrl}`);
+          logger.info(`=======================================================`);
+        }
       } else {
-        logger.info(`Verification email sent to ${to} (MessageId: ${info.messageId})`);
+        if (isProduction()) {
+          logger.info('Verification email sent successfully.');
+        } else {
+          logger.info(`Verification email sent to ${to} (MessageId: ${info.messageId})`);
+        }
       }
 
       return {
@@ -151,7 +199,11 @@ If you did not sign up for an IMovies account, please disregard this message.
         previewUrl: nodemailer.getTestMessageUrl(info) || null
       };
     } catch (err) {
-      logger.error(`Failed to send verification email to ${to}:`, err.message);
+      if (isProduction()) {
+        logger.error('Failed to deliver verification email in production.');
+      } else {
+        logger.error(`Failed to send verification email to ${to}:`, err.message);
+      }
       const deliveryError = new Error('Failed to deliver verification email. Please verify your email address or try again later.');
       deliveryError.statusCode = 502;
       throw deliveryError;
@@ -162,6 +214,14 @@ If you did not sign up for an IMovies account, please disregard this message.
    * Sends a branded HTML booking confirmation email with ticket details and inline QR code
    */
   async sendBookingConfirmationEmail({ to, name, booking }) {
+    if (isProduction() && (!this.transporter || this.isMock)) {
+      logger.error('EmailService: Outbound email delivery unavailable in production.');
+      return {
+        success: false,
+        error: 'Failed to deliver booking confirmation email. Please try again later.'
+      };
+    }
+
     const show = booking.show || {};
     const movie = show.movie || {};
     const theatre = show.theatre || {};
@@ -330,13 +390,19 @@ Enjoy your movie!
       const info = await this.transporter.sendMail(mailOptions);
 
       if (this.isMock) {
-        logger.info(`=======================================================`);
-        logger.info(`📧 [DEV EMAIL MOCK] Ticket Confirmation Email for ${to}`);
-        logger.info(`🎟️ Ref: ${booking.bookingReference} | Movie: ${movie.title || 'Movie'} | Total: ₹${booking.grandTotal}`);
-        logger.info(`💺 Seats: ${seatNumbers}`);
-        logger.info(`=======================================================`);
+        if (env.NODE_ENV === 'development') {
+          logger.info(`=======================================================`);
+          logger.info(`📧 [DEV EMAIL MOCK] Ticket Confirmation Email for ${to}`);
+          logger.info(`🎟️ Ref: ${booking.bookingReference} | Movie: ${movie.title || 'Movie'} | Total: ₹${booking.grandTotal}`);
+          logger.info(`💺 Seats: ${seatNumbers}`);
+          logger.info(`=======================================================`);
+        }
       } else {
-        logger.info(`Booking confirmation email sent to ${to} (MessageId: ${info.messageId})`);
+        if (isProduction()) {
+          logger.info('Booking confirmation email sent successfully.');
+        } else {
+          logger.info(`Booking confirmation email sent to ${to} (MessageId: ${info.messageId})`);
+        }
       }
 
       return {
@@ -345,10 +411,16 @@ Enjoy your movie!
         isMock: this.isMock
       };
     } catch (err) {
-      logger.error(`Failed to send booking confirmation email to ${to}:`, err.message);
+      if (isProduction()) {
+        logger.error('Failed to deliver booking confirmation email in production.');
+      } else {
+        logger.error(`Failed to send booking confirmation email to ${to}:`, err.message);
+      }
       return {
         success: false,
-        error: err.message
+        error: isProduction()
+          ? 'Failed to deliver booking confirmation email. Please try again later.'
+          : err.message
       };
     }
   }

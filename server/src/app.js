@@ -8,7 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import apiRoutes from './routes/index.js';
-import { env } from './config/environment.js';
+import { env, isProduction } from './config/environment.js';
 import { corsOptions } from './config/cors.js';
 import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
@@ -34,8 +34,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // HTTP request logging
-if (env.NODE_ENV !== 'test') {
-  app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+if (process.env.NODE_ENV !== 'test') {
+  app.use(morgan(isProduction() ? 'combined' : 'dev'));
 }
 
 // Serve uploaded media

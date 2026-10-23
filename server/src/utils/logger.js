@@ -1,3 +1,5 @@
+import { isProduction } from '../config/environment.js';
+
 const formatTime = () => new Date().toISOString();
 
 export const logger = {
@@ -11,7 +13,7 @@ export const logger = {
     console.error(`[${formatTime()}] [ERROR] ${msg}`, meta ? meta : '');
   },
   debug: (msg, meta = '') => {
-    if (process.env.NODE_ENV !== 'production' || process.env.LOG_LEVEL === 'debug') {
+    if (!isProduction() || process.env.LOG_LEVEL === 'debug') {
       console.log(`[${formatTime()}] [DEBUG] ${msg}`, meta ? meta : '');
     }
   }

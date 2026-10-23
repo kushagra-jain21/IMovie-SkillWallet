@@ -1,6 +1,7 @@
 import { Payment } from '../models/Payment.js';
 import { paymentService } from '../services/paymentService.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
+import { isProduction } from '../config/environment.js';
 
 export const getPaymentStatus = async (req, res, next) => {
   try {
@@ -22,6 +23,10 @@ export const getPaymentStatus = async (req, res, next) => {
 
 export const simulatePayment = async (req, res, next) => {
   try {
+    if (isProduction()) {
+      return errorResponse(res, 'Payment simulation is disabled in production.', 403);
+    }
+
     const { orderId, method = 'card', shouldFail = false } = req.body;
 
     if (!orderId) {

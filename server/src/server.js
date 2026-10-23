@@ -1,7 +1,7 @@
 import http from 'http';
 import app from './app.js';
 import { connectDB, disconnectDB } from './config/db.js';
-import { env } from './config/environment.js';
+import { env, isProduction } from './config/environment.js';
 import { initSocket } from './sockets/socketHandler.js';
 import { startSeatExpiryJob, stopSeatExpiryJob } from './jobs/seatExpiryJob.js';
 import { logger } from './utils/logger.js';
@@ -10,8 +10,8 @@ import { seedDatabase } from './scripts/seed.js';
 
 const httpServer = http.createServer(app);
 
-// Initialize Socket.IO
-initSocket(httpServer, env.CLIENT_URL);
+// Initialize Socket.IO with CORS origins
+initSocket(httpServer);
 
 const startServer = async () => {
   // Bind port first so hosting platforms (Render, Railway, etc.) detect an active web service immediately
@@ -28,17 +28,23 @@ const startServer = async () => {
     // Connect to database
     await connectDB();
 
-    // In development or when the database is empty, automatically seed verified baseline multiplexes & catalog
-    const activeTheatreCount = await Theatre.countDocuments({ isActive: true });
-    if (activeTheatreCount === 0) {
-      logger.info('No active theatres detected in database. Auto-seeding verified Mumbai cinema inventory and initial catalog...');
-      await seedDatabase({ reset: false, closeConnection: false });
+    // Auto-seeding only allowed in non-production environments when empty
+    if (!isProduction()) {
+      const activeTheatreCount = await Theatre.countDocuments({ isActive: true });
+      if (activeTheatreCount === 0) {
+        logger.info('No active theatres detected in database. Auto-seeding verified Mumbai cinema inventory and initial catalog in dev mode...');
+        await seedDatabase({ reset: false, closeConnection: false });
+      }
     }
 
     // Start background job for releasing expired seat holds
     startSeatExpiryJob(15000);
   } catch (error) {
     logger.error('Failed to initialize database connection:', error.message);
+    if (isProduction()) {
+      logger.error('CRITICAL: Database connection failed in production. Halting server.');
+      process.exit(1);
+    }
     if (env.MONGODB_URI.includes('127.0.0.1') || env.MONGODB_URI.includes('localhost')) {
       logger.error('⚠️ NOTE: Server is running in cloud/Render mode but MONGODB_URI is set to localhost! Please add MONGODB_URI in your Render Dashboard -> Environment tab.');
     } else {

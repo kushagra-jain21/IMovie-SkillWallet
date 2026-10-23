@@ -12,12 +12,22 @@ import { Notification } from '../models/Notification.js';
 import { seatReservationService } from '../services/seatReservationService.js';
 import { ROLES, MOVIE_STATUS, SHOW_STATUS, BOOKING_STATUS, PAYMENT_STATUS } from '../utils/constants.js';
 import { logger } from '../utils/logger.js';
+import { env, isProduction } from '../config/environment.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 
 export const seedDatabase = async ({ reset = true, closeConnection = true } = {}) => {
   try {
+    if (isProduction()) {
+      if (process.env.ALLOW_PRODUCTION_SEED !== 'true') {
+        throw new Error('CRITICAL SECURITY GUARD: Production database seeding is blocked. Set ALLOW_PRODUCTION_SEED=true to override.');
+      }
+      if (!env.ADMIN_SEED_PASSWORD || env.ADMIN_SEED_PASSWORD.length < 14 || env.ADMIN_SEED_PASSWORD === 'Admin@123456') {
+        throw new Error('CRITICAL SECURITY GUARD: Production database seeding requires ADMIN_SEED_PASSWORD of at least 14 characters and non-default value.');
+      }
+    }
+
     if (mongoose.connection.readyState !== 1) {
       await connectDB();
     }
@@ -40,27 +50,30 @@ export const seedDatabase = async ({ reset = true, closeConnection = true } = {}
     // 1. Seed Users
     logger.info('Seeding users...');
     const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash('User@123456', salt);
-    const adminPasswordHash = await bcrypt.hash('Admin@123456', salt);
+    const adminPasswordHash = await bcrypt.hash(env.ADMIN_SEED_PASSWORD, salt);
 
-    const demoUser = await User.create({
-      name: 'John Doe',
-      email: 'john@example.com',
-      passwordHash,
-      phone: '+919876500001',
-      role: ROLES.USER,
-      accountStatus: 'active',
-      isEmailVerified: true,
-      emailVerifiedAt: new Date()
-    });
+    let demoUser = null;
+    if (!isProduction()) {
+      const passwordHash = await bcrypt.hash('User@123456', salt);
+      demoUser = await User.create({
+        name: 'John Doe',
+        email: 'john@example.com',
+        passwordHash,
+        phone: '+919876500001',
+        role: ROLES.USER,
+        accountStatus: 'active',
+        isEmailVerified: true,
+        emailVerifiedAt: new Date()
+      });
+    }
 
     await User.findOneAndUpdate(
-      { email: 'admin@imovies.com' },
+      { email: env.ADMIN_SEED_EMAIL.toLowerCase() },
       {
-        name: 'Cinema SuperAdmin',
-        email: 'admin@imovies.com',
+        name: env.ADMIN_SEED_NAME,
+        email: env.ADMIN_SEED_EMAIL.toLowerCase(),
         passwordHash: adminPasswordHash,
-        phone: '+919876543210',
+        phone: env.ADMIN_SEED_PHONE,
         role: ROLES.ADMIN,
         accountStatus: 'active',
         isEmailVerified: true,
@@ -333,31 +346,37 @@ export const seedDatabase = async ({ reset = true, closeConnection = true } = {}
     }
 
     // 6. Create sample verified confirmed booking for the demo user
-    logger.info('Creating sample confirmed booking for demo user...');
-    const futureShow = scheduledShows.find((s) => new Date(s.startTime).getTime() > Date.now() + 2 * 3600 * 1000);
-    if (futureShow) {
-      const sampleSeats = ['C4', 'C5'];
-      
-      const hold = await seatReservationService.holdSeats({
-        showId: futureShow._id,
-        seatNumbers: sampleSeats,
-        user: demoUser
-      });
+    if (!isProduction() && demoUser) {
+      logger.info('Creating sample confirmed booking for demo user...');
+      const futureShow = scheduledShows.find((s) => new Date(s.startTime).getTime() > Date.now() + 2 * 3600 * 1000);
+      if (futureShow) {
+        const sampleSeats = ['C4', 'C5'];
+        
+        const hold = await seatReservationService.holdSeats({
+          showId: futureShow._id,
+          seatNumbers: sampleSeats,
+          user: demoUser
+        });
 
-      await seatReservationService.confirmBookingPayment({
-        bookingId: hold.bookingId,
-        paymentResult: {
-          paymentId: 'SIM_PAY_DEMO_SEED_001',
-          method: 'card'
-        },
-        user: demoUser
-      });
+        await seatReservationService.confirmBookingPayment({
+          bookingId: hold.bookingId,
+          paymentResult: {
+            paymentId: 'SIM_PAY_DEMO_SEED_001',
+            method: 'card'
+          },
+          user: demoUser
+        });
+      }
     }
 
     logger.info('====================================================');
     logger.info('🎉 SEEDING COMPLETED SUCCESSFULLY!');
-    logger.info(`👤 Demo User: john@example.com (Password: User@123456)`);
-    logger.info(`👑 Admin User: admin@imovies.com (Password: Admin@123456)`);
+    if (!isProduction()) {
+      logger.info(`👤 Demo User: john@example.com (Password: User@123456)`);
+      logger.info(`👑 Admin User: ${env.ADMIN_SEED_EMAIL} (Password: ${env.ADMIN_SEED_PASSWORD})`);
+    } else {
+      logger.info(`👑 Admin User: ${env.ADMIN_SEED_EMAIL} (Credentials seeded securely)`);
+    }
     logger.info(`🎥 Movies created: ${movies.length}`);
     logger.info(`🏛️ Theatres created: ${theatres.length}`);
     logger.info(`🖥️ Screens created: ${screens.length}`);

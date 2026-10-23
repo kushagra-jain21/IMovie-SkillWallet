@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { errorResponse } from '../utils/apiResponse.js';
+import { isProduction } from '../config/environment.js';
 
 export const notFoundHandler = (req, res, next) => {
   return errorResponse(res, `API route not found: ${req.method} ${req.originalUrl}`, 404);
@@ -37,7 +38,7 @@ export const globalErrorHandler = (err, req, res, next) => {
   }
 
   const statusCode = err.statusCode || 500;
-  const message = process.env.NODE_ENV === 'production' && statusCode === 500
+  const message = isProduction() && statusCode === 500
     ? 'Internal server error. Please try again later.'
     : err.message || 'Internal server error.';
 

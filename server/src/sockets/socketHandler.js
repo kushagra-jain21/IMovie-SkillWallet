@@ -5,7 +5,7 @@ import { isOriginAllowed } from '../config/cors.js';
 
 let ioInstance = null;
 
-export const initSocket = (httpServer, allowedOrigin) => {
+export const initSocket = (httpServer) => {
   ioInstance = new Server(httpServer, {
     cors: {
       origin: (origin, callback) => {

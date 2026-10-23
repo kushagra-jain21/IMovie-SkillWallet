@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { env } from './environment.js';
+import { env, isProduction } from './environment.js';
 import { logger } from '../utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -46,7 +46,7 @@ export const connectDB = async (customUri = null) => {
 
   // 2. STANDARD RUNTIME (Development & Production)
   const targetUri = customUri || env.MONGODB_URI;
-  const isCloudHost = env.NODE_ENV === 'production' || Boolean(process.env.RENDER);
+  const isCloudHost = isProduction() || Boolean(process.env.RENDER);
   logger.info(`Connecting to MongoDB at: ${targetUri.replace(/:([^@]+)@/, ':****@')}`);
 
   try {

@@ -1,13 +1,59 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-const requiredEnvs = ['JWT_ACCESS_SECRET'];
+/**
+ * Fail-closed production check.
+ * Any environment other than explicitly 'development' or 'test' is treated as production.
+ */
+export const isProduction = (...args) => {
+  const target = args.length > 0 ? args[0] : process.env.NODE_ENV;
+  const envStr = (target || '').trim().toLowerCase();
+  return envStr !== 'development' && envStr !== 'test';
+};
 
-for (const envKey of requiredEnvs) {
-  if (!process.env[envKey] && process.env.NODE_ENV === 'production') {
-    throw new Error(`CRITICAL CONFIG ERROR: Missing required environment variable ${envKey}`);
+export const SAMPLE_JWT_SECRETS = [
+  'imovies_super_secret_jwt_access_token_key_change_in_production_2026',
+  'imovies_super_secret_refresh_token_key_change_in_production_2026',
+  'secret',
+  'jwt_secret',
+  'changeme',
+  '12345678901234567890123456789012',
+  'your_jwt_access_secret_key_here_minimum_32_characters'
+];
+
+/**
+ * Validates critical environment variables.
+ * Fails fast in production or fail-closed modes.
+ */
+export const validateEnvironment = (targetEnv = process.env) => {
+  const nodeEnv = targetEnv.NODE_ENV;
+  if (!isProduction(nodeEnv)) {
+    return true;
   }
-}
+
+  const jwtSecret = targetEnv.JWT_ACCESS_SECRET;
+  if (!jwtSecret || !jwtSecret.trim()) {
+    throw new Error('CRITICAL CONFIG ERROR: Missing required environment variable JWT_ACCESS_SECRET in production');
+  }
+
+  if (jwtSecret.length < 32) {
+    throw new Error('CRITICAL CONFIG ERROR: JWT_ACCESS_SECRET must be at least 32 characters long in production');
+  }
+
+  const isSample = SAMPLE_JWT_SECRETS.includes(jwtSecret) ||
+    jwtSecret.toLowerCase().includes('change_in_production') ||
+    jwtSecret.toLowerCase().includes('imovies_super_secret');
+  if (isSample) {
+    throw new Error('CRITICAL CONFIG ERROR: JWT_ACCESS_SECRET must not use a sample/default placeholder in production');
+  }
+
+  const paymentProvider = (targetEnv.PAYMENT_PROVIDER || 'simulated').trim().toLowerCase();
+  if (paymentProvider === 'simulated') {
+    throw new Error("CRITICAL CONFIG ERROR: PAYMENT_PROVIDER cannot be 'simulated' in production");
+  }
+
+  return true;
+};
 
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -34,3 +80,8 @@ export const env = {
   EMAIL_FROM: process.env.EMAIL_FROM || 'IMovies Cinema <noreply@imovies.com>',
   EMAIL_VERIFICATION_TOKEN_TTL_MINUTES: parseInt(process.env.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES, 10) || 60
 };
+
+// Fail fast at startup in production
+if (isProduction()) {
+  validateEnvironment(process.env);
+}

@@ -5,7 +5,7 @@ import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { ROLES } from '../utils/constants.js';
 import { generateVerificationToken, generateVerificationOtp, hashVerificationValue } from '../utils/crypto.js';
 import { emailService } from '../services/emailService.js';
-import { env } from '../config/environment.js';
+import { env, isProduction } from '../config/environment.js';
 import { logger } from '../utils/logger.js';
 
 export const register = async (req, res, next) => {
@@ -283,8 +283,8 @@ export const login = async (req, res, next) => {
 
     res.cookie('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: isProduction(),
+      sameSite: isProduction() ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
@@ -308,8 +308,8 @@ export const getMe = async (req, res) => {
 export const logout = async (req, res) => {
   res.clearCookie('token', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    secure: isProduction(),
+    sameSite: isProduction() ? 'none' : 'lax'
   });
   return successResponse(res, null, 'Logged out successfully.');
 };

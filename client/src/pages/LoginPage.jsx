@@ -5,6 +5,7 @@ import { loginUser, clearAuthError } from '../store/authSlice.js';
 import { Film, Mail, Lock, LogIn, Sparkles, AlertTriangle, ArrowRight, RefreshCw } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { authService } from '../services/authService.js';
+import { sanitizeRedirectPath } from '../utils/sanitizeRedirect.js';
 
 export const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -17,7 +18,7 @@ export const LoginPage = () => {
   const { loading, error, authErrorCode, unverifiedEmail } = useSelector((state) => state.auth);
 
   const queryParams = new URLSearchParams(location.search);
-  const redirect = queryParams.get('redirect') || '/';
+  const redirect = sanitizeRedirectPath(queryParams.get('redirect'), '/');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
