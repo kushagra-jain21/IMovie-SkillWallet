@@ -273,23 +273,107 @@ class SeatReservationService {
     });
 
     if (!booking) {
-      throw new Error('Booking record not found.');
+      const notFoundErr = new Error('Booking record not found.');
+      notFoundErr.statusCode = 404;
+      throw notFoundErr;
     }
 
+    // 1. Idempotency check: If booking is already confirmed, return success idempotently
     if (booking.status === BOOKING_STATUS.CONFIRMED) {
-      return booking; // Idempotent success
+      return booking;
     }
 
     if (booking.status === BOOKING_STATUS.CANCELLED || booking.status === BOOKING_STATUS.EXPIRED) {
-      throw new Error(`Cannot confirm booking in '${booking.status}' status.`);
+      const statusErr = new Error(`Cannot confirm booking in '${booking.status}' status.`);
+      statusErr.statusCode = 400;
+      throw statusErr;
     }
 
-    // Verify user ownership
+    // 2. Strict Owner Verification
     if (booking.user.toString() !== user._id.toString() && user.role !== 'admin') {
-      throw new Error('Unauthorized booking confirmation attempt.');
+      const ownerErr = new Error('Unauthorized booking confirmation attempt. You do not own this booking.');
+      ownerErr.statusCode = 403;
+      throw ownerErr;
     }
 
+    // 3. Amount Verification
+    if (paymentResult.amount !== undefined && Number(paymentResult.amount) !== Number(booking.grandTotal)) {
+      const amountErr = new Error(`Payment amount mismatch: expected ${booking.grandTotal}, received ${paymentResult.amount}`);
+      amountErr.statusCode = 400;
+      throw amountErr;
+    }
+
+    // 4. Idempotency check on paymentId
+    if (paymentResult.paymentId) {
+      const existingPayment = await Payment.findOne({ providerPaymentId: paymentResult.paymentId });
+      if (existingPayment) {
+        if (existingPayment.booking.toString() === booking._id.toString()) {
+          return booking; // Idempotent return
+        }
+        const dupErr = new Error('This payment reference has already been utilized for a different transaction.');
+        dupErr.statusCode = 409;
+        throw dupErr;
+      }
+    }
+
+    const now = new Date();
+    const isBookingExpired = booking.expiresAt && new Date(booking.expiresAt) < now;
     const seatNumbers = booking.seats.map((s) => s.seatNumber);
+
+    // 5. Check hold expiry on seats (heldUntil and expiresAt)
+    const activeHeldSeats = await ShowSeat.find({
+      show: booking.show._id,
+      seatNumber: { $in: seatNumbers },
+      status: SEAT_STATUS.HELD,
+      holdToken: booking.holdToken,
+      heldUntil: { $gt: now }
+    });
+
+    // If hold has expired or seats are no longer validly held: Trigger REFUND PATH
+    if (isBookingExpired || activeHeldSeats.length !== seatNumbers.length) {
+      logger.warn(`Seat hold expired for booking ${booking.bookingReference}. Initiating automatic refund path.`);
+      let refundResult = null;
+      if (paymentResult?.paymentId) {
+        try {
+          refundResult = await paymentService.refundPayment({
+            paymentId: paymentResult.paymentId,
+            amount: booking.grandTotal,
+            reason: 'Seat hold expired before payment confirmation'
+          });
+        } catch (refundErr) {
+          logger.error(`Automatic refund failed for expired hold ${booking.bookingReference}:`, refundErr.message);
+        }
+      }
+
+      booking.status = BOOKING_STATUS.EXPIRED;
+      booking.paymentStatus = refundResult?.success ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.FAILED;
+      booking.cancellationDetails = {
+        cancelledAt: new Date(),
+        cancellationReason: 'Seat hold expired before payment confirmation',
+        refundAmount: booking.grandTotal,
+        refundStatus: refundResult?.status || 'failed'
+      };
+      await booking.save();
+
+      // Release any expired seats back to available
+      await ShowSeat.updateMany(
+        { show: booking.show._id, holdToken: booking.holdToken },
+        {
+          $set: {
+            status: SEAT_STATUS.AVAILABLE,
+            heldBy: null,
+            heldUntil: null,
+            holdToken: null
+          }
+        }
+      );
+
+      const expErr = new Error('Your seat hold has expired. An automatic full refund has been initiated to your original payment method.');
+      expErr.statusCode = 410;
+      expErr.refunded = true;
+      expErr.refundResult = refundResult;
+      throw expErr;
+    }
 
     // Atomically convert seats from HELD to BOOKED
     const updateResult = await ShowSeat.updateMany(
@@ -310,7 +394,22 @@ class SeatReservationService {
     );
 
     if (updateResult.modifiedCount !== seatNumbers.length) {
-      throw new Error('The seat hold has expired or was modified. Payment confirmation aborted.');
+      // If seats could not be atomically updated, invoke refund path
+      logger.warn(`Atomic seat update failed for booking ${booking.bookingReference}. Initiating automatic refund.`);
+      if (paymentResult?.paymentId) {
+        try {
+          await paymentService.refundPayment({
+            paymentId: paymentResult.paymentId,
+            amount: booking.grandTotal,
+            reason: 'Atomic seat claim failed during confirmation'
+          });
+        } catch (refundErr) {
+          logger.error(`Refund error on atomic claim failure:`, refundErr.message);
+        }
+      }
+      const failErr = new Error('The seat hold could not be converted into confirmed tickets. An automatic refund has been initiated.');
+      failErr.statusCode = 409;
+      throw failErr;
     }
 
     // Generate secure QR Code string

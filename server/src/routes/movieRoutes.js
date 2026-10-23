@@ -3,6 +3,7 @@ import { getMovies, getMovieById, createMovie, updateMovie, deleteMovie } from '
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import { successResponse } from '../utils/apiResponse.js';
+import { createMovieValidator, updateMovieValidator } from '../validators/movieValidator.js';
 
 const router = Router();
 
@@ -11,8 +12,8 @@ router.get('/', getMovies);
 router.get('/:id', getMovieById);
 
 // Admin-only routes
-router.post('/', authenticate, requireAdmin, createMovie);
-router.patch('/:id', authenticate, requireAdmin, updateMovie);
+router.post('/', authenticate, requireAdmin, createMovieValidator, createMovie);
+router.patch('/:id', authenticate, requireAdmin, updateMovieValidator, updateMovie);
 router.delete('/:id', authenticate, requireAdmin, deleteMovie);
 
 // Admin image upload helper

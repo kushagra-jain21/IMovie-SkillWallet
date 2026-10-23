@@ -13,10 +13,15 @@ import { corsOptions } from './config/cors.js';
 import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
 
+import mongoSanitize from 'express-mongo-sanitize';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Trust reverse proxy (e.g. Render / Cloudflare)
+app.set('trust proxy', 1);
 
 // Security HTTP headers
 app.use(
@@ -28,18 +33,35 @@ app.use(
 // CORS configuration
 app.use(cors(corsOptions));
 
-// Request parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Request parsing: 100kb limit and rawBody capture for webhook signature verification
+app.use(
+  express.json({
+    limit: '100kb',
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    }
+  })
+);
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use(cookieParser());
+
+// Express Mongo Sanitize to prevent NoSQL query injection ($ and . stripping)
+app.use(mongoSanitize());
 
 // HTTP request logging
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan(isProduction() ? 'combined' : 'dev'));
 }
 
-// Serve uploaded media
-app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
+// Serve uploaded media with X-Content-Type-Options: nosniff header
+app.use(
+  '/uploads',
+  (req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+  },
+  express.static(path.resolve(__dirname, '../uploads'))
+);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

@@ -94,7 +94,8 @@ export const confirmBooking = async (req, res, next) => {
       bookingId,
       paymentResult: {
         paymentId: verification.paymentId,
-        method: verification.method
+        method: verification.method,
+        amount: req.body.amount || payload?.amount
       },
       user: req.user
     });

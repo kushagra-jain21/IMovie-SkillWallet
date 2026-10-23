@@ -62,6 +62,8 @@ const paymentSchema = new mongoose.Schema(
   }
 );
 
-paymentSchema.index({ providerPaymentId: 1 });
+// Enforce idempotency via unique index on providerPaymentId
+paymentSchema.index({ providerPaymentId: 1 }, { unique: true, sparse: true });
+paymentSchema.index({ booking: 1, status: 1 });
 
 export const Payment = mongoose.model('Payment', paymentSchema);

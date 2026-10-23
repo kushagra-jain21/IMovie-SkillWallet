@@ -1,6 +1,7 @@
 import { Theatre } from '../models/Theatre.js';
 import { Screen } from '../models/Screen.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
+import { escapeRegex } from '../utils/regex.js';
 
 export const getTheatres = async (req, res, next) => {
   try {
@@ -8,10 +9,10 @@ export const getTheatres = async (req, res, next) => {
     const query = { isActive: true };
 
     if (city && city !== 'all') {
-      query.city = new RegExp(`^${city.trim()}$`, 'i');
+      query.city = new RegExp(`^${escapeRegex(city.trim())}$`, 'i');
     }
     if (search && search.trim()) {
-      query.name = new RegExp(search.trim(), 'i');
+      query.name = new RegExp(escapeRegex(search.trim()), 'i');
     }
 
     const rawTheatres = await Theatre.find(query).sort({ name: 1 }).lean();
@@ -94,7 +95,20 @@ export const createTheatre = async (req, res, next) => {
 export const updateTheatre = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const theatre = await Theatre.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+    const { name, description, address, city, state, postalCode, country, amenities, isActive } = req.body;
+
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (address !== undefined) updateData.address = address;
+    if (city !== undefined) updateData.city = city;
+    if (state !== undefined) updateData.state = state;
+    if (postalCode !== undefined) updateData.postalCode = postalCode;
+    if (country !== undefined) updateData.country = country;
+    if (amenities !== undefined) updateData.amenities = Array.isArray(amenities) ? amenities : [amenities];
+    if (isActive !== undefined) updateData.isActive = isActive;
+
+    const theatre = await Theatre.findByIdAndUpdate(id, updateData, { new: true, runValidators: true });
     if (!theatre) {
       return errorResponse(res, 'Theatre not found.', 404);
     }

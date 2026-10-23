@@ -23,11 +23,18 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|webp/;
-  const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimeType = allowedTypes.test(file.mimetype);
+  const ext = path.extname(file.originalname).toLowerCase();
+  const mime = (file.mimetype || '').toLowerCase();
 
-  if (extName && mimeType) {
+  // Explicitly block SVG and XML to prevent stored XSS attacks
+  if (ext === '.svg' || mime.includes('svg') || mime.includes('xml') || mime.includes('html')) {
+    return cb(new Error('SVG and XML media uploads are strictly prohibited for security reasons.'), false);
+  }
+
+  const allowedExts = ['.jpeg', '.jpg', '.png', '.webp'];
+  const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+
+  if (allowedExts.includes(ext) && allowedMimes.includes(mime)) {
     return cb(null, true);
   }
   cb(new Error('Only JPEG, JPG, PNG, and WebP image files are allowed.'));

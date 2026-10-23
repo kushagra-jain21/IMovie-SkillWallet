@@ -48,3 +48,27 @@ export const apiLimiter = rateLimit({
   }
 });
 
+export const holdLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
+  message: {
+    success: false,
+    message: 'Too many seat reservation attempts. Please wait a minute before trying again.'
+  }
+});
+
+export const paymentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
+  message: {
+    success: false,
+    message: 'Too many payment requests. Please wait a moment before trying again.'
+  }
+});
+

@@ -7,6 +7,7 @@ import { Booking } from '../models/Booking.js';
 import { Payment } from '../models/Payment.js';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/apiResponse.js';
 import { BOOKING_STATUS, PAYMENT_STATUS, SHOW_STATUS } from '../utils/constants.js';
+import { escapeRegex } from '../utils/regex.js';
 
 export const getDashboardAnalytics = async (req, res, next) => {
   try {
@@ -121,7 +122,7 @@ export const getAllBookings = async (req, res, next) => {
     }
 
     if (search && search.trim()) {
-      query.bookingReference = new RegExp(search.trim(), 'i');
+      query.bookingReference = new RegExp(escapeRegex(search.trim()), 'i');
     }
 
     const pageNum = Math.max(1, parseInt(page, 10));
@@ -157,7 +158,7 @@ export const getAllUsers = async (req, res, next) => {
     }
 
     if (search && search.trim()) {
-      const regex = new RegExp(search.trim(), 'i');
+      const regex = new RegExp(escapeRegex(search.trim()), 'i');
       query.$or = [{ name: regex }, { email: regex }, { phone: regex }];
     }
 

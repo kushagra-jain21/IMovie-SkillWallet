@@ -1,5 +1,6 @@
 import { Movie } from '../models/Movie.js';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/apiResponse.js';
+import { escapeRegex } from '../utils/regex.js';
 
 export const getMovies = async (req, res, next) => {
   try {
@@ -20,15 +21,15 @@ export const getMovies = async (req, res, next) => {
     }
 
     if (genre && genre !== 'all') {
-      query.genres = { $in: [new RegExp(genre, 'i')] };
+      query.genres = { $in: [new RegExp(escapeRegex(genre), 'i')] };
     }
 
     if (language && language !== 'all') {
-      query.languages = { $in: [new RegExp(language, 'i')] };
+      query.languages = { $in: [new RegExp(escapeRegex(language), 'i')] };
     }
 
     if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), 'i');
+      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
       query.$or = [
         { title: searchRegex },
         { synopsis: searchRegex },
@@ -110,7 +111,40 @@ export const createMovie = async (req, res, next) => {
 export const updateMovie = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const movie = await Movie.findByIdAndUpdate(id, req.body, {
+    const {
+      title,
+      synopsis,
+      posterUrl,
+      backdropUrl,
+      trailerUrl,
+      genres,
+      languages,
+      duration,
+      releaseDate,
+      certification,
+      director,
+      cast,
+      status,
+      rating
+    } = req.body;
+
+    const updateData = {};
+    if (title !== undefined) updateData.title = title;
+    if (synopsis !== undefined) updateData.synopsis = synopsis;
+    if (posterUrl !== undefined) updateData.posterUrl = posterUrl;
+    if (backdropUrl !== undefined) updateData.backdropUrl = backdropUrl;
+    if (trailerUrl !== undefined) updateData.trailerUrl = trailerUrl;
+    if (genres !== undefined) updateData.genres = Array.isArray(genres) ? genres : [genres];
+    if (languages !== undefined) updateData.languages = Array.isArray(languages) ? languages : [languages];
+    if (duration !== undefined) updateData.duration = Number(duration);
+    if (releaseDate !== undefined) updateData.releaseDate = new Date(releaseDate);
+    if (certification !== undefined) updateData.certification = certification;
+    if (director !== undefined) updateData.director = director;
+    if (cast !== undefined) updateData.cast = Array.isArray(cast) ? cast : [];
+    if (status !== undefined) updateData.status = status;
+    if (rating !== undefined) updateData.rating = Number(rating);
+
+    const movie = await Movie.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true
     });
