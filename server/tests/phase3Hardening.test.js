@@ -259,6 +259,64 @@ describe('Phase 3 Security, Concurrency & Data Integrity Suite', () => {
       expect(res.status).toBe(409);
       expect(res.body.message).toContain('already been utilized');
     });
+
+    it('handles double confirm idempotently when called twice for the same booking and payment', async () => {
+      const booking = await Booking.create({
+        bookingReference: `IMV-DBL-${Date.now().toString(36).toUpperCase()}`,
+        user: customerUser._id,
+        show: show._id,
+        seats: [{ seatNumber: 'A1', category: 'SILVER', price: 200 }],
+        totalAmount: 200,
+        convenienceFee: 25,
+        grandTotal: 225,
+        status: BOOKING_STATUS.PENDING,
+        paymentStatus: PAYMENT_STATUS.PENDING,
+        holdToken: 'HOLD_DBL_TEST',
+        expiresAt: new Date(Date.now() + 600000)
+      });
+
+      await ShowSeat.updateOne(
+        { show: show._id, seatNumber: 'A1' },
+        {
+          status: SEAT_STATUS.HELD,
+          heldBy: customerUser._id,
+          heldUntil: new Date(Date.now() + 600000),
+          holdToken: 'HOLD_DBL_TEST'
+        }
+      );
+
+      const paymentId = `SIM_PAY_DBL_${Date.now()}`;
+
+      // First confirmation
+      const res1 = await request(app)
+        .post('/api/v1/bookings/confirm')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send({
+          bookingId: booking._id.toString(),
+          orderId: 'SIM_ORD_DBL',
+          paymentId,
+          method: 'card',
+          amount: 225
+        });
+
+      expect(res1.status).toBe(200);
+      expect(res1.body.data.status).toBe(BOOKING_STATUS.CONFIRMED);
+
+      // Second confirmation (double confirm with identical bookingId and payment)
+      const res2 = await request(app)
+        .post('/api/v1/bookings/confirm')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send({
+          bookingId: booking._id.toString(),
+          orderId: 'SIM_ORD_DBL',
+          paymentId,
+          method: 'card',
+          amount: 225
+        });
+
+      expect(res2.status).toBe(200);
+      expect(res2.body.data.status).toBe(BOOKING_STATUS.CONFIRMED);
+    });
   });
 
   describe('2. Payment Webhook Raw-Body Signature & Replay Protection', () => {
@@ -398,4 +456,96 @@ describe('Phase 3 Security, Concurrency & Data Integrity Suite', () => {
       expect(Array.isArray(res.body.data)).toBe(true);
     });
   });
+
+  describe('6. Authorization, IDOR, Mass Assignment, NoSQL Injection & Timing Tests', () => {
+    it('rejects booking lookup attempt by non-owner attacker (IDOR protection on GET /api/v1/bookings/:id)', async () => {
+      const booking = await Booking.create({
+        bookingReference: `IMV-IDOR-${Date.now().toString(36).toUpperCase()}`,
+        user: customerUser._id,
+        show: show._id,
+        seats: [{ seatNumber: 'A2', category: 'SILVER', price: 200 }],
+        totalAmount: 200,
+        convenienceFee: 25,
+        grandTotal: 225,
+        status: BOOKING_STATUS.CONFIRMED,
+        paymentStatus: PAYMENT_STATUS.SUCCESS
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/bookings/${booking._id}`)
+        .set('Authorization', `Bearer ${attackerToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toContain('Access denied');
+    });
+
+    it('blocks regular authenticated user from accessing admin routes (GET /api/v1/admin/analytics)', async () => {
+      const res = await request(app)
+        .get('/api/v1/admin/analytics')
+        .set('Authorization', `Bearer ${customerToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toContain('Access denied');
+    });
+
+    it('prevents privilege escalation and protected field modification (role, isEmailVerified, accountStatus, tokenVersion) via profile update', async () => {
+      const targetUser = await User.create({
+        name: 'Mass Assign Target',
+        email: `mass_${Date.now()}@test.com`,
+        passwordHash: 'dummy_hash',
+        role: 'user',
+        isEmailVerified: true,
+        accountStatus: 'active',
+        tokenVersion: 0
+      });
+      const token = generateAccessToken(targetUser);
+
+      const res = await request(app)
+        .patch('/api/v1/auth/profile')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          name: 'Updated Name',
+          role: 'admin',
+          isEmailVerified: false,
+          accountStatus: 'suspended',
+          tokenVersion: 999
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.user.name).toBe('Updated Name');
+      expect(res.body.data.user.role).toBe('user');
+
+      const reloadedUser = await User.findById(targetUser._id);
+      expect(reloadedUser.role).toBe('user');
+      expect(reloadedUser.isEmailVerified).toBe(true);
+      expect(reloadedUser.accountStatus).toBe('active');
+      expect(reloadedUser.tokenVersion).toBe(0);
+
+      await User.deleteOne({ _id: targetUser._id });
+    });
+
+    it('sanitizes NoSQL operator injection payloads without authentication bypass or unhandled crash', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/login')
+        .send({
+          email: { $gt: '' },
+          password: 'Password123!'
+        });
+
+      expect([400, 401]).toContain(res.status);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('performs constant-time dummy bcrypt verification for unknown emails during login', async () => {
+      const t0 = Date.now();
+      await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: 'nonexistent_user_for_timing@test.com', password: 'WrongPassword123!' });
+      const elapsedUnknown = Date.now() - t0;
+
+      // Both unknown user and invalid password run bcrypt comparison with cost 12
+      expect(elapsedUnknown).toBeGreaterThan(15);
+    });
+  });
 });
+

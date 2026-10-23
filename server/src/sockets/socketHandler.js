@@ -5,7 +5,23 @@ import { seatReservationService } from '../services/seatReservationService.js';
 import { isOriginAllowed } from '../config/cors.js';
 
 let ioInstance = null;
+const MAX_MAP_SIZE = 10000;
 const socketRateLimitMap = new Map();
+
+const enforceMapCapacity = (map, maxSize = MAX_MAP_SIZE) => {
+  if (map.size >= maxSize) {
+    const keysToDelete = [];
+    const iter = map.keys();
+    for (let i = 0; i < 1000; i++) {
+      const nextKey = iter.next().value;
+      if (nextKey) keysToDelete.push(nextKey);
+      else break;
+    }
+    for (const k of keysToDelete) {
+      map.delete(k);
+    }
+  }
+};
 
 const isSocketRateLimited = (socketId, maxEvents = 30, windowMs = 10000) => {
   const now = Date.now();
@@ -16,6 +32,7 @@ const isSocketRateLimited = (socketId, maxEvents = 30, windowMs = 10000) => {
   }
   entry.count++;
   socketRateLimitMap.set(socketId, entry);
+  enforceMapCapacity(socketRateLimitMap);
   return entry.count > maxEvents;
 };
 
@@ -45,8 +62,13 @@ export const initSocket = (httpServer) => {
         return;
       }
 
-      if (!showId || !mongoose.isValidObjectId(showId)) {
+      if (!showId || typeof showId !== 'string' || !mongoose.isValidObjectId(showId)) {
         socket.emit('error', { message: 'Invalid showId provided for seat room.' });
+        return;
+      }
+
+      if (socket.data.joinedShows.size >= 10 && !socket.data.joinedShows.has(showId)) {
+        socket.emit('error', { message: 'Maximum 10 concurrent active show subscriptions allowed per connection.' });
         return;
       }
 
@@ -66,19 +88,23 @@ export const initSocket = (httpServer) => {
 
     // Leave show room with validation
     socket.on('leave-show', ({ showId } = {}) => {
-      if (!showId || !mongoose.isValidObjectId(showId)) return;
+      if (!showId || typeof showId !== 'string' || !mongoose.isValidObjectId(showId)) return;
       const room = `show:${showId}`;
       socket.leave(room);
       socket.data.joinedShows?.delete(showId);
       logger.debug(`Socket ${socket.id} left room ${room}`);
     });
 
-    // Rejoin previously tracked rooms on reconnection
+    // Rejoin previously tracked rooms on reconnection (strictly capped and validated)
     socket.on('rejoin-shows', async ({ showIds } = {}) => {
       if (isSocketRateLimited(socket.id)) return;
-      const targets = Array.isArray(showIds) ? showIds : Array.from(socket.data.joinedShows || []);
+      const rawTargets = Array.isArray(showIds) ? showIds : Array.from(socket.data.joinedShows || []);
+      const targets = rawTargets.slice(0, 10); // Cap at max 10 shows
       for (const sId of targets) {
-        if (sId && mongoose.isValidObjectId(sId)) {
+        if (sId && typeof sId === 'string' && mongoose.isValidObjectId(sId)) {
+          if (socket.data.joinedShows.size >= 10 && !socket.data.joinedShows.has(sId)) {
+            continue;
+          }
           const room = `show:${sId}`;
           socket.join(room);
           socket.data.joinedShows.add(sId);

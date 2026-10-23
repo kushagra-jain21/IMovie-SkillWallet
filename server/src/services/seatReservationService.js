@@ -296,11 +296,15 @@ class SeatReservationService {
       throw ownerErr;
     }
 
-    // 3. Amount Verification
-    if (paymentResult.amount !== undefined && Number(paymentResult.amount) !== Number(booking.grandTotal)) {
-      const amountErr = new Error(`Payment amount mismatch: expected ${booking.grandTotal}, received ${paymentResult.amount}`);
-      amountErr.statusCode = 400;
-      throw amountErr;
+    // 3. Amount Verification in integer minor units (paise: 1 INR = 100 paise)
+    if (paymentResult.amount !== undefined) {
+      const expectedPaise = Math.round(Number(booking.grandTotal) * 100);
+      const receivedPaise = Math.round(Number(paymentResult.amount) * 100);
+      if (expectedPaise !== receivedPaise) {
+        const amountErr = new Error(`Payment amount mismatch: expected ${expectedPaise} paise (₹${booking.grandTotal}), received ${receivedPaise} paise (₹${paymentResult.amount})`);
+        amountErr.statusCode = 400;
+        throw amountErr;
+      }
     }
 
     // 4. Idempotency check on paymentId

@@ -1,14 +1,13 @@
 import crypto from 'crypto';
 import { Payment } from '../models/Payment.js';
 import { Booking } from '../models/Booking.js';
+import { WebhookEvent } from '../models/WebhookEvent.js';
 import { paymentService } from '../services/paymentService.js';
 import { seatReservationService } from '../services/seatReservationService.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { isProduction } from '../config/environment.js';
 import { BOOKING_STATUS } from '../utils/constants.js';
 import { logger } from '../utils/logger.js';
-
-const processedWebhookEvents = new Set();
 
 export const getPaymentStatus = async (req, res, next) => {
   try {
@@ -73,23 +72,26 @@ export const handlePaymentWebhook = async (req, res, next) => {
       return errorResponse(res, 'Missing webhook signature header', 400);
     }
 
-    // Replay protection 1: Timestamp check (within 300 seconds / 5 minutes)
+    // Replay protection 1: Timestamp check (Razorpay 300-second / 5-minute replay window)
     if (timestamp) {
       const tsNum = Number(timestamp);
       const timestampMs = tsNum < 1e12 ? tsNum * 1000 : tsNum;
       const now = Date.now();
       const diffMs = Math.abs(now - timestampMs);
       if (diffMs > 300 * 1000) {
-        return errorResponse(res, 'Webhook rejected: Timestamp expired (replay protection)', 400);
+        return errorResponse(res, 'Webhook rejected: Timestamp expired (Razorpay 300s replay protection)', 400);
       }
     }
 
-    // Replay protection 2: Idempotent Event ID check
-    if (eventId && processedWebhookEvents.has(eventId)) {
-      return successResponse(res, { processed: true, duplicate: true }, 'Webhook already processed (idempotent)');
+    // Replay protection 2: MongoDB unique index check on eventId
+    if (eventId) {
+      const existing = await WebhookEvent.findOne({ eventId });
+      if (existing) {
+        return successResponse(res, { processed: true, duplicate: true }, 'Webhook already processed (idempotent)');
+      }
     }
 
-    // Signature verification against raw body
+    // Signature verification against rawBody
     const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET || process.env.RAZORPAY_WEBHOOK_SECRET || 'imovies_webhook_secret_key_2026';
     const rawPayload = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
     const computedSignature = crypto
@@ -100,6 +102,7 @@ export const handlePaymentWebhook = async (req, res, next) => {
     const signatureBuffer = Buffer.from(signature);
     const expectedBuffer = Buffer.from(computedSignature);
 
+    // Explicit buffer length check before timingSafeEqual to avoid RangeError
     if (
       signatureBuffer.length !== expectedBuffer.length ||
       !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
@@ -107,9 +110,20 @@ export const handlePaymentWebhook = async (req, res, next) => {
       return errorResponse(res, 'Invalid webhook signature', 400);
     }
 
+    // Atomically persist processed event in MongoDB to prevent replay
     if (eventId) {
-      processedWebhookEvents.add(eventId);
-      setTimeout(() => processedWebhookEvents.delete(eventId), 15 * 60 * 1000);
+      try {
+        await WebhookEvent.create({
+          eventId,
+          provider: 'razorpay',
+          eventType: req.body?.event || 'custom_event'
+        });
+      } catch (dbErr) {
+        if (dbErr.code === 11000) {
+          return successResponse(res, { processed: true, duplicate: true }, 'Webhook already processed (idempotent)');
+        }
+        throw dbErr;
+      }
     }
 
     const { event, payload } = req.body;

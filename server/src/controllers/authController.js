@@ -10,10 +10,27 @@ import { env, isProduction } from '../config/environment.js';
 import { logger } from '../utils/logger.js';
 
 // Rate limiting & Progressive delay state
-const DUMMY_BCRYPT_HASH = '$2a$12$e8uq5e5cO.a9R8d2E4N5ueq7mR9sB2J7g1zF4uV6oP8yL1kT5m8Na';
+// Dynamically generate dummy bcrypt hash at startup with cost factor 12
+const DUMMY_BCRYPT_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 12);
 
+const MAX_MAP_SIZE = 10000;
 const loginAttempts = new Map();
 const forgotPasswordAttempts = new Map();
+
+const enforceMapCapacity = (map, maxSize = MAX_MAP_SIZE) => {
+  if (map.size >= maxSize) {
+    const keysToDelete = [];
+    const iter = map.keys();
+    for (let i = 0; i < 1000; i++) {
+      const nextKey = iter.next().value;
+      if (nextKey) keysToDelete.push(nextKey);
+      else break;
+    }
+    for (const k of keysToDelete) {
+      map.delete(k);
+    }
+  }
+};
 
 const getClientIp = (req) => {
   return (
@@ -68,6 +85,7 @@ const recordFailedLogin = (req, email) => {
 
   emailRecord.count += 1;
   loginAttempts.set(emailKey, emailRecord);
+  enforceMapCapacity(loginAttempts);
 };
 
 const clearLoginAttempts = (req, email) => {
@@ -102,6 +120,7 @@ const checkForgotPasswordRateLimit = (req, email) => {
   emailRecord.count += 1;
   forgotPasswordAttempts.set(ipKey, ipRecord);
   forgotPasswordAttempts.set(emailKey, emailRecord);
+  enforceMapCapacity(forgotPasswordAttempts);
 };
 
 export const register = async (req, res, next) => {
