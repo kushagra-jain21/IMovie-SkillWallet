@@ -151,16 +151,18 @@ graph TD
 
 ## 13. Testing Strategy & Actual Execution Results
 
-Automated testing was conducted across both backend and frontend using Vitest:
-- **Backend Tests (`server/tests/`)**:
-  - `auth.test.js`: 5 integration tests (registration, duplicate rejection, login, incorrect credentials, unauthenticated route guard). **100% Passed**.
+Automated testing was conducted across both backend and frontend using Vitest (34 passed out of 34 tests, 100%):
+- **Backend Tests (`server/tests/` - 25 Passed)**:
+  - `auth.test.js`: 6 integration tests (registration, duplicate rejection, login, incorrect credentials, unauthenticated route guard, email verification status gating). **100% Passed**.
   - `seatReservation.test.js`: 4 integration tests (seat inventory fetching, temporary hold creation, rejection of already-held seats, and concurrent parallel race condition simulation where exactly 1 of 2 competing requests succeeded and 1 received 409 Conflict). **100% Passed**.
-- **Frontend Tests (`client/src/test/`)**:
+  - `emailVerification.test.js`: 15 comprehensive integration tests covering complete verification token lifecycle, 6-digit OTP verification, 5-attempt brute-force lock, 60s resend cooldown, expiration enforcement, and safe mock email delivery. **100% Passed**.
+- **Frontend Tests (`client/src/test/` - 9 Passed)**:
   - `bookingSlice.test.js`: 5 unit tests verifying Redux seat selection, 10-seat limit, and hold state. **100% Passed**.
   - `SeatLegend.test.jsx`: Component test verifying seat statuses and price tiers. **100% Passed**.
   - `MovieCard.test.jsx`: Component test verifying movie card rendering. **100% Passed**.
+  - `VerifyEmailPage.test.jsx`: 2 component tests verifying branding, email input, 6 OTP digit inputs, and direct verification link auto-submission. **100% Passed**.
 - **Production Build**:
-  - `npm run build --prefix client`: Succeeded in 5.16s with 1,710 modules transformed.
+  - `npm run build --prefix client`: Succeeded with 1,711 modules transformed into production assets.
 
 ---
 

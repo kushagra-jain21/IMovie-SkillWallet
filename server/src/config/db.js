@@ -1,12 +1,51 @@
 import mongoose from 'mongoose';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { env } from './environment.js';
 import { logger } from '../utils/logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let mongodInstance = null;
 
 export const connectDB = async (customUri = null) => {
-  const targetUri = customUri || env.MONGODB_URI;
+  // 1. ISOLATED TEST MODE GUARD
+  if (process.env.NODE_ENV === 'test') {
+    let testUri = customUri || process.env.TEST_MONGODB_URI;
 
+    // Check shared globalSetup URI file if env not set
+    if (!testUri) {
+      const uriFile = path.resolve(__dirname, '../../.test-mongo-uri');
+      if (fs.existsSync(uriFile)) {
+        testUri = fs.readFileSync(uriFile, 'utf-8').trim();
+        process.env.TEST_MONGODB_URI = testUri;
+      }
+    }
+
+    if (!testUri) {
+      throw new Error('TEST ISOLATION ERROR: No in-memory TEST_MONGODB_URI provided in test mode.');
+    }
+
+    // Strict guard: Never connect to Atlas or remote mongodb+srv in test mode
+    if (testUri.includes('mongodb+srv') || testUri.includes('mongodb.net')) {
+      throw new Error('CRITICAL SECURITY GUARD: Test suite attempted to connect to MongoDB Atlas (mongodb+srv)! Aborting immediately.');
+    }
+
+    if (mongoose.connection.readyState === 1) {
+      return mongoose.connection;
+    }
+
+    await mongoose.connect(testUri, {
+      serverSelectionTimeoutMS: 2000
+    });
+    logger.info(`Test MongoDB connected to isolated memory instance at: ${testUri}`);
+    return mongoose.connection;
+  }
+
+  // 2. STANDARD RUNTIME (Development & Production)
+  const targetUri = customUri || env.MONGODB_URI;
   const isCloudHost = env.NODE_ENV === 'production' || Boolean(process.env.RENDER);
   logger.info(`Connecting to MongoDB at: ${targetUri.replace(/:([^@]+)@/, ':****@')}`);
 
@@ -44,8 +83,9 @@ export const connectDB = async (customUri = null) => {
 export const disconnectDB = async () => {
   try {
     await mongoose.disconnect();
-    if (mongodInstance) {
+    if (process.env.NODE_ENV !== 'test' && mongodInstance) {
       await mongodInstance.stop();
+      mongodInstance = null;
     }
     logger.info('MongoDB disconnected.');
   } catch (err) {
