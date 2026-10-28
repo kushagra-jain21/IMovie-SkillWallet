@@ -2,12 +2,35 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-22.x-green.svg)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-18.x-blue.svg)](https://react.dev/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose%208.x-brightgreen.svg)](https://www.mongodb.com/)
+[![MongoDB Atlas](https://img.shields.io/badge/MongoDB-Atlas%20%2F%20Mongoose%208.x-brightgreen.svg)](https://www.mongodb.com/atlas)
 [![Socket.IO](https://img.shields.io/badge/Socket.IO-4.x-black.svg)](https://socket.io/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-success.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-34%20Passed%20(100%25)-success.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-104%20Passed%20(100%25)-success.svg)]()
 
-**IMovies** is a full-stack cinema management and real-time movie ticket booking platform built with the MERN stack (MongoDB, Express.js, React.js with Vite, and Node.js). It offers real-time seat availability updates via WebSockets, atomic concurrency-controlled reservation holds, a development payment simulator, printable tickets with dynamic QR codes, and a comprehensive administration dashboard.
+**IMovies** is a full-stack cinema management and real-time movie ticket booking platform built with the MERN stack (MongoDB Atlas, Express.js, React.js with Vite, and Node.js). It offers real-time seat availability updates via WebSockets, atomic concurrency-controlled reservation holds, a development payment simulator, printable tickets with dynamic QR codes, and a comprehensive administration dashboard.
+
+---
+
+## 🏛️ System Architecture
+
+```text
+┌─────────────────────────┐          HTTP REST / JSON          ┌─────────────────────────┐
+│     React 18 Frontend   │ ─────────────────────────────────> │    Express.js Backend   │
+│   (Vite, Redux, Axios)  │ <───────────────────────────────── │    (Node 22 LTS, API)   │
+└─────────────────────────┘      WebSocket (Socket.IO Rooms)   └────────────┬────────────┘
+            ▲                                                               │
+            │                      Real-Time Seat Hold Broadcasts           │ Mongoose 8 ODM
+            └───────────────────────────────────────────────────────────────┘       │
+                                                                                    ▼
+                                                                       ┌─────────────────────────┐
+                                                                       │   MongoDB Atlas Cluster │
+                                                                       │     (Cloud Database)    │
+                                                                       └─────────────────────────┘
+```
+
+- **Frontend (`client/`)**: Single-Page Application (SPA) with React 18, Vite, Redux Toolkit, and Bootstrap 5.
+- **Backend (`server/`)**: Modular REST API with Express.js, Socket.IO, JWT authentication, and atomic seat reservation engine.
+- **Database Layer**: Mongoose 8 ODM connected to MongoDB Atlas with strict schemas, indexes, and connection resilience.
 
 ---
 
@@ -41,70 +64,76 @@
 ## 💻 Technology Stack
 
 - **Frontend**: React 18, Vite, React Router v6, Redux Toolkit, Axios, Bootstrap 5, Lucide React, React Toastify, Socket.IO client, Canvas-Confetti.
-- **Backend**: Node.js 22 LTS, Express.js, MongoDB / Mongoose 8, Socket.IO, JSON Web Tokens (JWT), bcryptjs, Helmet, express-rate-limit, Multer, QRCode.
+- **Backend**: Node.js 22 LTS, Express.js, MongoDB Atlas / Mongoose 8, Socket.IO, JSON Web Tokens (JWT), bcryptjs, Helmet, express-rate-limit, Multer, QRCode.
 - **Testing**: Vitest, Supertest, React Testing Library, and MongoMemoryServer.
 
 ---
 
-## 📋 Prerequisites
+## 📋 Prerequisites & macOS Setup
 
-- **Node.js**: v20+ LTS (Tested on Node v22.19.0).
+- **Node.js**: v20+ LTS (Tested on Node v22.x).
 - **npm**: v10+.
-- **MongoDB**: Local MongoDB instance (`mongodb://127.0.0.1:27017/imovies`) OR MongoDB Atlas connection string.  
-  *(Note: If a local MongoDB daemon is not detected, the server automatically boots an embedded in-memory MongoDB runner so you can develop and evaluate immediately with zero setup hurdles!)*
+- **MongoDB Atlas**: MongoDB Atlas cluster URI (`mongodb+srv://...`).
+- **macOS Port Note**: On macOS Monterey, Ventura, and Sonoma, Apple's AirPlay Receiver occupies port 5000 (`ControlCenter`). The backend is pre-configured to port **5001** to avoid this port conflict.
 
 ---
 
 ## 🚀 Quick Start & Installation
 
-### 1. Clone & Install Dependencies
+### 1. Install Dependencies
 ```bash
 # In the project root:
 npm run install:all
 ```
 
-### 2. Environment Configuration
-The `.env` files are already pre-configured for instant development. If customizing:
-- `server/.env`:
-  ```env
-  PORT=5000
-  CLIENT_URL=http://localhost:5173
-  MONGODB_URI=mongodb://127.0.0.1:27017/imovies
-  JWT_ACCESS_SECRET=imovies_super_secret_jwt_access_token_key_change_in_production_2026
-  PAYMENT_PROVIDER=simulated
-  ADMIN_SEED_EMAIL=admin@imovies.com
-  ADMIN_SEED_PASSWORD=Admin@123456
-  ```
-- `client/.env`:
-  ```env
-  VITE_API_BASE_URL=http://localhost:5000/api/v1
-  VITE_SOCKET_URL=http://localhost:5000
-  ```
+### 2. Configure MongoDB Atlas Credentials
+You can provide your credentials in either of two ways:
 
-### 3. Seed Database with Realistic Cinema Data
+#### Option A: `atlas-credentials.env` (Automatic Discovery)
+Place your `atlas-credentials.env` file in the project workspace (or `server/` directory):
+```env
+MONGODB_USERNAME="<your_atlas_user>"
+MONGODB_PASSWORD="<your_atlas_password>"
+MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-url>"
+```
+The server automatically detects this file, sanitizes the URI, appends the database name (`/imovies`), and connects.
+
+#### Option B: `server/.env`
+Configure `MONGODB_URI` directly in `server/.env`:
+```env
+PORT=5001
+CLIENT_URL=http://localhost:5173
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-url>/imovies?retryWrites=true&w=majority
+JWT_ACCESS_SECRET=your_super_secret_jwt_access_token_key_change_in_production_2026
+PAYMENT_PROVIDER=simulated
+```
+
+> [!IMPORTANT]
+> **MongoDB Atlas Network Access (IP Whitelist)**:
+> In your [MongoDB Atlas Dashboard](https://cloud.mongodb.com/) -> **Network Access**:
+> Ensure your IP address is whitelisted, or add `0.0.0.0/0` ("Allow Access From Anywhere"). If not whitelisted, Atlas terminates the connection during TLS handshake with `SSL alert number 80`.
+
+### 3. Verify Database Connection
+```bash
+npm run db:check
+```
+This script connects to your MongoDB Atlas cluster, verifies the connection, and prints document counts across all collections.
+
+### 4. Seed Database with Cinema Catalog
 ```bash
 npm run seed
 ```
 This populates:
 - 5 feature movies (Interstellar, Cyberpunk 2099, Shadows of the Realm, etc.)
-- 3 flagship multiplexes across Mumbai, Delhi, and Bengaluru
-- 6 auditoriums with 60-seat layouts (Rows A–F with Silver, Gold, Platinum pricing)
+- 6 flagship multiplexes across Mumbai, Delhi, and Bengaluru
+- 12 auditoriums with 60-seat layouts (Rows A–F with Silver, Gold, Platinum pricing)
 - 72 scheduled shows across today and subsequent days
 - Initialized 4,320 seat inventory records
 - Pre-configured demo accounts.
 
-### 4. Create or Update Administrator
-```bash
-npm run seed:admin
-```
-- **Admin Email**: `admin@imovies.com`
-- **Admin Password**: `Admin@123456`
-- **Demo User Email**: `john@example.com`
-- **Demo User Password**: `User@123456`
-
 ### 5. Launch the Application
 ```bash
-# Concurrently start both backend (port 5000) and frontend (port 5173):
+# Concurrently start backend (port 5001) and frontend (port 5173):
 npm run dev
 ```
 
@@ -112,10 +141,17 @@ Visit **http://localhost:5173** in your browser!
 
 ---
 
+## 🔑 Pre-Configured Demo Credentials
+
+- **Admin Account**: `admin@imovies.com` / `Admin@123456`
+- **Demo User Account**: `john@example.com` / `User@123456`
+
+---
+
 ## 🧪 Running Automated Tests
 
 ```bash
-# Run all automated tests (backend + frontend)
+# Run all automated tests (104/104 passing)
 npm test
 
 # Run backend integration tests (Auth, Seat concurrency, Double-booking protection)
@@ -130,103 +166,9 @@ npm run build
 
 ---
 
-## 📧 Email Verification System & SMTP Configuration
-
-IMovies features an end-to-end, cryptographically secure **Email Verification System** during user registration.
-
-### Verification Workflow
-1. **User Sign Up**: User enters their Name, Email, Password, and Confirm Password. Passwords must match and have at least 6 characters.
-2. **Account Creation**: The user account is created with `isEmailVerified: false`. No access tokens or session cookies are issued to unverified accounts.
-3. **Dual Credential Generation**:
-   - A 32-byte cryptographically secure random token (Node.js `crypto.randomBytes(32)`).
-   - A 6-digit numeric OTP code (`crypto.randomInt(100000, 1000000)`).
-   - Only **SHA-256 hashes** (`emailVerificationTokenHash` and `emailVerificationOtpHash`) are stored in MongoDB. Raw tokens and OTPs are never stored at rest.
-4. **Branded Verification Email**: Nodemailer sends an email containing both a one-click verification button (`/verify-email?token=...`) and a highlighted 6-digit OTP code.
-5. **Account Activation**:
-   - Clicking the link auto-validates the token on the frontend `/verify-email` page.
-   - Alternatively, entering the 6-digit OTP manually verifies the account.
-   - Upon verification, `isEmailVerified: true` and `emailVerifiedAt: Date` are recorded, and token hashes are invalidated.
-6. **Access Control**: Unverified users cannot log in (returns `403 Forbidden` with code `EMAIL_NOT_VERIFIED`) or hold cinema seats.
-
----
-
-### SMTP Configuration & Gmail App Passwords
-
-The email engine supports any standard SMTP provider (Gmail, SendGrid, Amazon SES, Mailgun, Postmark, or custom SMTP servers).
-
-#### 1. Gmail SMTP Setup (Recommended for Development)
-To use your Gmail account for sending verification emails:
-1. Go to your [Google Account](https://myaccount.google.com/) -> **Security**.
-2. Under "How you sign in to Google", ensure **2-Step Verification** is turned **ON**.
-3. Search for or navigate to **App passwords** (`https://myaccount.google.com/apppasswords`).
-4. Enter an App Name (e.g. `IMovies Cinema`) and click **Create**.
-5. Copy the generated 16-character app password (e.g., `abcd efgh ijkl mnop`).
-6. Update `server/.env`:
-   ```env
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_SECURE=false
-   SMTP_USER=your_gmail@gmail.com
-   SMTP_PASS=abcdefghijklmnop
-   EMAIL_FROM="IMovies Cinema" <your_gmail@gmail.com>
-   CLIENT_URL=http://localhost:5173
-   EMAIL_VERIFICATION_TOKEN_TTL_MINUTES=60
-   ```
-
-#### 2. Local Development Mock Transport (Zero Configuration)
-If `SMTP_USER` and `SMTP_PASS` are left empty or omitted, IMovies automatically runs in **Development Mock Mode**:
-- Verification emails are safely simulated without crashing or connecting to external servers.
-- The 6-digit OTP and the direct verification link are logged clearly to the server terminal:
-  ```
-  📧 [DEV EMAIL MOCK] Verification Email for user@example.com
-  🔑 6-Digit OTP: 810977
-  🔗 Direct Verification Link: http://localhost:5173/verify-email?token=...
-  ```
-- You can copy-paste the link or the OTP directly into the browser to test the full flow!
-
-#### 3. Important: SMTP Acceptance vs. Inbox Delivery
-- When Nodemailer reports success (`250 OK`), it means the SMTP relay server **accepted** the message for delivery.
-- If an email does not appear in your inbox:
-  - Check the **Spam / Junk** folder.
-  - In production, configure SPF (`v=spf1 include:... ~all`), DKIM, and DMARC DNS records for your domain to prevent mailbox providers from filtering transactional emails.
-
----
-
-## 💳 Payment Sandbox & Simulator
-
-IMovies includes an interactive payment simulator that accurately mimics the real-world checkout lifecycle without requiring real credit cards:
-1. When selecting seats and clicking **Hold & Checkout**, the backend atomically reserves the seats and returns an order payload.
-2. The **Payment Modal** presents Card, UPI, and NetBanking options.
-3. Users can check the **Simulate decline** toggle to verify payment rejection handling.
-4. On confirmation, the server verifies the payment and issues an e-ticket with a scannable QR code.
-
-For production or sandbox Razorpay testing, set `PAYMENT_PROVIDER=razorpay` and supply `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in `server/.env`.
-
----
-
-## ⚡ WebSocket Event Overview
-
-All real-time seat inventory events are scoped to individual shows via `show:${showId}`:
-- `join-show`: Emitted by client upon opening a seat map; server responds with authoritative `seat-availability-updated`.
-- `leave-show`: Emitted upon navigation away from the auditorium.
-- `seat-hold-created`: Emitted to room when a user claims seats; turns seats to amber/held for all other viewers.
-- `seat-hold-released`: Emitted when a hold expires or is cancelled; returns seats to green/available.
-- `booking-confirmed`: Emitted upon verified payment; permanently marks seats as booked.
-
----
-
-## 🌐 Production Deployment (Cloudflare Pages + Render + MongoDB Atlas)
-
-Complete instructions for deploying the production build can be found in [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md):
-- **Frontend**: Cloudflare Pages connected to GitHub (`nayan2427/IMovie-SkillWallet.git`) with automatic client-side SPA routing (`client/public/_redirects`).
-- **Backend**: Render Web Service (Node.js 22 LTS, Express, Socket.IO) using dynamic port binding and robust CORS origins.
-- **Database**: Cloud-hosted MongoDB Atlas cluster with automatic reconnection resilience.
-
----
-
 ## 📁 Monorepo Structure
 
-```
+```text
 imovies/
 ├── client/                     # React 18 + Vite Frontend
 │   ├── src/
@@ -238,9 +180,9 @@ imovies/
 │   │   └── styles/             # Cinematic dark theme tokens
 ├── server/                     # Express REST API & Socket.IO Real-Time Engine
 │   ├── src/
-│   │   ├── config/             # DB & environment config
+│   │   ├── config/             # DB & environment config (Atlas connector)
 │   │   ├── controllers/        # Request controllers
-│   │   ├── models/             # 9 Mongoose schemas
+│   │   ├── models/             # 10 Mongoose schemas with indexes
 │   │   ├── routes/             # REST routes under /api/v1
 │   │   ├── services/           # SeatReservationService, PaymentService
 │   │   ├── sockets/            # Socket.IO handlers
@@ -253,6 +195,11 @@ imovies/
 
 ## 🤝 Troubleshooting
 
-1. **Port in use (5000 or 5173)**: Change `PORT` in `server/.env` and update `VITE_API_BASE_URL` in `client/.env`.
-2. **MongoDB not installed locally**: No problem! The server automatically falls back to an embedded in-memory MongoDB runner in development mode.
-3. **Session Expired**: If credentials expire, click **Sign In** and use the quick demo credential buttons.
+1. **Atlas Connection Rejected (`SSL alert number 80` / `ReplicaSetNoPrimary`)**:
+   - Cause: Your current public IP is not in your MongoDB Atlas Network Access whitelist.
+   - Solution: Log into [MongoDB Atlas](https://cloud.mongodb.com/) -> **Network Access** -> Click **+ Add IP Address** -> Select **Allow Access From Anywhere** (`0.0.0.0/0`) or add your current IP, and click **Confirm**.
+2. **macOS Port 5000 in use (`EADDRINUSE`)**:
+   - On macOS Monterey+, Apple ControlCenter / AirPlay Receiver listens on port 5000.
+   - Solution: The project is pre-configured to port **5001** in `server/.env` and `client/.env`.
+3. **Database Inspection**:
+   - Run `npm run db:check` anytime to verify connection status and inspect collection counts.

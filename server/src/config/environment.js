@@ -1,5 +1,64 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// 1. Load primary environment variables
 dotenv.config();
+
+// 2. Discover and load atlas-credentials.env securely if present
+const candidateAtlasPaths = [
+  path.resolve(__dirname, '../../atlas-credentials.env'),
+  path.resolve(__dirname, '../../../atlas-credentials.env'),
+  path.resolve(process.cwd(), 'atlas-credentials.env'),
+  path.resolve(process.cwd(), 'server/atlas-credentials.env')
+];
+
+for (const atlasPath of candidateAtlasPaths) {
+  if (fs.existsSync(atlasPath)) {
+    // If MONGODB_URI is absent or is the default local address, load from atlas-credentials.env
+    const currentUri = process.env.MONGODB_URI || '';
+    if (!currentUri || currentUri.includes('127.0.0.1') || currentUri.includes('localhost')) {
+      dotenv.config({ path: atlasPath, override: true });
+    }
+    break;
+  }
+}
+
+/**
+ * Ensures MongoDB connection string specifies a database name
+ * without duplicating query parameters or creating invalid URIs.
+ */
+export const formatMongoUri = (rawUri, defaultDb = 'imovies') => {
+  if (!rawUri || typeof rawUri !== 'string') return rawUri;
+  let uri = rawUri.trim().replace(/^["']|["']$/g, '');
+  if (!uri.startsWith('mongodb://') && !uri.startsWith('mongodb+srv://')) {
+    return uri;
+  }
+
+  const hasQuery = uri.includes('?');
+  const pathAndHostPart = hasQuery ? uri.split('?')[0] : uri;
+  const queryString = hasQuery ? uri.slice(uri.indexOf('?')) : '';
+
+  const atIndex = pathAndHostPart.indexOf('@');
+  const hostStartIndex = atIndex !== -1 ? atIndex : pathAndHostPart.indexOf('://') + 3;
+  const slashIndex = pathAndHostPart.indexOf('/', hostStartIndex);
+
+  if (slashIndex === -1) {
+    const query = queryString || '?retryWrites=true&w=majority';
+    return `${pathAndHostPart}/${defaultDb}${query}`;
+  } else {
+    const dbName = pathAndHostPart.slice(slashIndex + 1).trim();
+    if (!dbName) {
+      const query = queryString || '?retryWrites=true&w=majority';
+      return `${pathAndHostPart.slice(0, slashIndex)}/${defaultDb}${query}`;
+    }
+    return uri;
+  }
+};
 
 /**
  * Fail-closed production check.
@@ -55,11 +114,13 @@ export const validateEnvironment = (targetEnv = process.env) => {
   return true;
 };
 
+const rawMongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/imovies';
+
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: parseInt(process.env.PORT, 10) || 5000,
+  PORT: parseInt(process.env.PORT, 10) || 5001,
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:5173',
-  MONGODB_URI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/imovies',
+  MONGODB_URI: formatMongoUri(rawMongoUri, 'imovies'),
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'imovies_super_secret_jwt_access_token_key_change_in_production_2026',
   // Access token lifetime default: 2 hours (1-2h policy)
   JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN || '2h',

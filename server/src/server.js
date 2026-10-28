@@ -1,4 +1,5 @@
 import http from 'http';
+import mongoose from 'mongoose';
 import app from './app.js';
 import { connectDB, disconnectDB } from './config/db.js';
 import { env, isProduction } from './config/environment.js';
@@ -14,42 +15,35 @@ const httpServer = http.createServer(app);
 initSocket(httpServer);
 
 const startServer = async () => {
-  // Bind port first so hosting platforms (Render, Railway, etc.) detect an active web service immediately
-  httpServer.listen(env.PORT, () => {
-    logger.info(`=================================================`);
-    logger.info(`🎬 IMovies Server running at port ${env.PORT}`);
-    logger.info(`⚡ Socket.IO listening on port ${env.PORT}`);
-    logger.info(`💳 Payment Provider: ${env.PAYMENT_PROVIDER}`);
-    logger.info(`🌐 Environment: ${env.NODE_ENV}`);
-    logger.info(`=================================================`);
-  });
-
   try {
-    // Connect to database
+    // 1. Establish database connection before accepting any incoming requests
     await connectDB();
 
-    // Auto-seeding only allowed in non-production environments when empty
+    // 2. Dev mode: Auto-seed initial catalog if Atlas database has no theatres
     if (!isProduction()) {
       const activeTheatreCount = await Theatre.countDocuments({ isActive: true });
       if (activeTheatreCount === 0) {
-        logger.info('No active theatres detected in database. Auto-seeding verified Mumbai cinema inventory and initial catalog in dev mode...');
+        logger.info('No active theatres detected in database. Initializing cinema catalog and inventory...');
         await seedDatabase({ reset: false, closeConnection: false });
       }
     }
 
-    // Start background job for releasing expired seat holds
+    // 3. Start background job for releasing expired seat holds
     startSeatExpiryJob(15000);
+
+    // 4. Start HTTP & Socket.IO server only after database is ready
+    httpServer.listen(env.PORT, () => {
+      logger.info(`=================================================`);
+      logger.info(`🎬 IMovies Server running at port ${env.PORT}`);
+      logger.info(`⚡ Socket.IO listening on port ${env.PORT}`);
+      logger.info(`💳 Payment Provider: ${env.PAYMENT_PROVIDER}`);
+      logger.info(`🌐 Environment: ${env.NODE_ENV}`);
+      logger.info(`💾 Database: ${mongoose.connection.host} / ${mongoose.connection.name}`);
+      logger.info(`=================================================`);
+    });
   } catch (error) {
-    logger.error('Failed to initialize database connection:', error.message);
-    if (isProduction()) {
-      logger.error('CRITICAL: Database connection failed in production. Halting server.');
-      process.exit(1);
-    }
-    if (env.MONGODB_URI.includes('127.0.0.1') || env.MONGODB_URI.includes('localhost')) {
-      logger.error('⚠️ NOTE: Server is running in cloud/Render mode but MONGODB_URI is set to localhost! Please add MONGODB_URI in your Render Dashboard -> Environment tab.');
-    } else {
-      logger.error('⚠️ Please ensure 0.0.0.0/0 is added in your MongoDB Atlas Network Access so Render can connect.');
-    }
+    logger.error(`CRITICAL: Database connection or server initialization failed: ${error.message}`);
+    process.exit(1);
   }
 };
 

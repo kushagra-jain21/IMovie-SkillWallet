@@ -43,7 +43,7 @@ A comprehensive, defense-in-depth security, architectural, and UI/UX audit was c
 > imovies-server@1.0.0 test
 > vitest run
 
- RUN  v2.1.9 C:/Users/nayan/OneDrive/Desktop/WEB COURESE/4_th/IMovie-SkillWallet/server
+ RUN  v2.1.9 /Users/kushagra/Downloads/IMovie-SkillWallet/server
 
  ✓ tests/seatReservation.test.js (4 tests) 6349ms
  ✓ tests/auth.test.js (6 tests) 6705ms
@@ -62,7 +62,7 @@ A comprehensive, defense-in-depth security, architectural, and UI/UX audit was c
 > imovies-client@1.0.0 test
 > vitest run
 
- RUN  v2.1.9 C:/Users/nayan/OneDrive/Desktop/WEB COURESE/4_th/IMovie-SkillWallet/client
+ RUN  v2.1.9 /Users/kushagra/Downloads/IMovie-SkillWallet/client
 
  ✓ src/test/bookingSlice.test.js (5 tests) 12ms
  ✓ src/test/SeatLegend.test.jsx (1 test) 44ms

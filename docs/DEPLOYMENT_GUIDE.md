@@ -41,19 +41,19 @@ This guide details the step-by-step procedures to deploy the IMovies MERN cinema
 
 ## 💻 2. Push Project to GitHub
 
-Because your project is located at `c:\Users\nayan\OneDrive\Desktop\WEB COURESE\4_th\IMoive!`, initialize Git directly inside this directory so only the IMovies project files are committed to `https://github.com/nayan2427/IMovie-SkillWallet.git`.
+Because your project is located at `/Users/kushagra/Downloads/IMovie-SkillWallet`, initialize Git directly inside this directory so only the IMovies project files are committed to `https://github.com/kushagra-jain/IMovie-SkillWallet.git`.
 
 Open PowerShell or Terminal and run:
 
 ```powershell
 # 1. Navigate into the IMoive! project directory
-cd "c:\Users\nayan\OneDrive\Desktop\WEB COURESE\4_th\IMoive!"
+cd "/Users/kushagra/Downloads/IMovie-SkillWallet"
 
 # 2. Initialize Git repository
 git init
 
 # 3. Add the GitHub remote repository
-git remote add origin https://github.com/nayan2427/IMovie-SkillWallet.git
+git remote add origin https://github.com/kushagra-jain/IMovie-SkillWallet.git
 
 # 4. Stage all project files (safe .gitignore prevents .env / node_modules from staging)
 git add .
@@ -93,7 +93,7 @@ Before deploying the backend, ensure MongoDB Atlas accepts connections from clou
 
 1. Log into [Render Dashboard](https://dashboard.render.com/).
 2. Click **New +** → **Web Service**.
-3. Connect your GitHub repository: `nayan2427/IMovie-SkillWallet`.
+3. Connect your GitHub repository: `kushagra-jain/IMovie-SkillWallet`.
 4. Configure service settings:
    - **Name**: `imovies-backend` (or your preferred name)
    - **Region**: Singapore / Frankfurt / Oregon (select closest to your users)
@@ -140,7 +140,7 @@ Before deploying the backend, ensure MongoDB Atlas accepts connections from clou
 
 1. Log into the [Cloudflare Dashboard](https://dash.cloudflare.com/).
 2. In the sidebar, select **Workers & Pages** → **Create application** → **Pages** → **Connect to Git**.
-3. Select your repository: `nayan2427/IMovie-SkillWallet`.
+3. Select your repository: `kushagra-jain/IMovie-SkillWallet`.
 4. Set up the build configuration:
    - **Project Name**: `imovies`
    - **Production Branch**: `main`
